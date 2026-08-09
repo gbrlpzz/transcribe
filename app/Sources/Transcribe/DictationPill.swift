@@ -237,8 +237,9 @@ final class DictationPill: NSPanel {
     }
 }
 
-/// Smooth, continuous waveform: 41 thin bars with quadratic taper, phase drift
-/// and gentle attack/decay so it looks calm and alive — Voice Memos style.
+/// Apple-native waveform: a single continuous filled silhouette (Voice
+/// Memos style) that breathes symmetrically around the center. No discrete
+/// bars, no gaps — just a smooth, calm, native-looking wave.
 final class WaveformView: NSView {
     var level: Float = 0 {
         didSet { needsDisplay = true }
@@ -247,8 +248,6 @@ final class WaveformView: NSView {
     private var displayLevel: Float = 0
     private var phase: Float = 0
     private var timer: Timer?
-    private let barCount = 31
-    private let centerIndex = 15
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -274,44 +273,41 @@ final class WaveformView: NSView {
     override var intrinsicContentSize: NSSize { NSSize(width: 80, height: 20) }
 
     override func draw(_ dirtyRect: NSRect) {
-        let barW: CGFloat = 1.6
-        let gap: CGFloat = 1.0
-        let totalW = CGFloat(barCount) * (barW + gap) - gap
-        let maxH = bounds.height
-        var x = (bounds.width - totalW) / 2
+        let w = bounds.width
+        let h = bounds.height
+        let midY = h / 2
         let env = CGFloat(displayLevel)
+        let breath = 0.5 + 0.5 * CGFloat(sin(Double(phase)))
+        let level = env * breath
 
-        // symmetric envelope: the shape is even around the center at every
-        // instant (cos is symmetric), and only the overall amplitude breathes
-        // with sin(phase) — the wave can never look shifted left or right
-        var heights = [CGFloat](repeating: 0, count: barCount)
-        for i in 0..<barCount {
-            let dist = CGFloat(abs(i - centerIndex)) / CGFloat(centerIndex)
-            let taper = 1.0 - dist * dist * 0.85
-            let breath = 0.5 + 0.5 * CGFloat(sin(Double(phase)))
-            let shape = CGFloat(cos(Double(i - centerIndex) * 0.45))
-            heights[i] = maxH * taper * (0.06 + 0.94 * env * breath * (0.35 + 0.65 * shape))
-        }
-        var smoothed = heights
-        for i in 1..<(barCount - 1) {
-            smoothed[i] = (heights[i - 1] + 2 * heights[i] + heights[i + 1]) / 4
+        let samples = 72
+        let step = w / CGFloat(samples - 1)
+        let path = NSBezierPath()
+
+        func heightAt(_ x: CGFloat) -> CGFloat {
+            let t = (x - w / 2) / (w / 2)          // -1 .. 1
+            let taper = pow(1 - t * t, 0.9)        // soft rounded bell
+            return (h / 2) * taper * (0.08 + 0.92 * level)
         }
 
-        for i in 0..<barCount {
-            // fully symmetric, pure white — no red accents to skew the visual
-            // center of the pill relative to the notch
-            NSColor.white.withAlphaComponent(0.95).setFill()
-            let rect = NSRect(x: x, y: (bounds.height - smoothed[i]) / 2,
-                              width: barW, height: max(smoothed[i], 2))
-            NSBezierPath(roundedRect: rect, xRadius: barW / 2, yRadius: barW / 2).fill()
-            x += barW + gap
+        // top edge, left -> right
+        path.move(to: NSPoint(x: 0, y: midY))
+        for i in 0..<samples {
+            let x = CGFloat(i) * step
+            path.line(to: NSPoint(x: x, y: midY - heightAt(x)))
         }
+        // bottom edge, right -> left (mirrored)
+        for i in stride(from: samples - 1, through: 0, by: -1) {
+            let x = CGFloat(i) * step
+            path.line(to: NSPoint(x: x, y: midY + heightAt(x)))
+        }
+        path.close()
+
+        NSColor.white.withAlphaComponent(0.92).setFill()
+        path.fill()
     }
 }
 
-
-/// Minimal processing indicator: three small white dots pulsing in sequence —
-/// the standard typing/processing pattern (iMessage-style). No rotation.
 final class DotsView: NSView {
     private var dotLayers: [CALayer] = []
     private let dotCount = 3
