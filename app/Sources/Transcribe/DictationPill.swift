@@ -100,6 +100,7 @@ final class DictationPill: NSPanel {
         spinner.style = .spinning
         spinner.controlSize = .small
         spinner.isDisplayedWhenStopped = false
+        spinner.appearance = NSAppearance(named: .darkAqua)  // renders white on black
 
         container.addSubview(resultStack)
         container.addSubview(waveform)
@@ -154,20 +155,20 @@ final class DictationPill: NSPanel {
                 resultStack.isHidden = true
                 waveform.isHidden = false
                 spinner.stopAnimation(nil)
-                appear(scale: 0.92)
+                appear(from: 0.95)
             case .transcribing:
                 // symbol only (spinner), no text
                 resultStack.isHidden = true
                 waveform.isHidden = true
                 spinner.startAnimation(nil)
-                appear(scale: 1.0)
+                appear(from: 1.0)
             case .result:
                 // ✓ Transcribed — no truncated text preview
                 spinner.stopAnimation(nil)
                 waveform.isHidden = true
                 resultStack.isHidden = false
                 label.stringValue = "Transcribed"
-                appear(scale: 1.0)
+                appear(from: 1.0)
                 hide(after: 1.8)
             case .hidden:
                 dismiss()
@@ -200,11 +201,14 @@ final class DictationPill: NSPanel {
 
     // MARK: - Animations (slow + gentle)
 
-    private func appear(scale: CGFloat) {
+    private func appear(from scale: CGFloat) {
+        // set the starting transform now, then animate to full size (identity),
+        // so the pill always ends at the same size in every state
+        container.layer?.setAffineTransform(CGAffineTransform(scaleX: scale, y: scale))
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0.32
             ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            container.layer?.setAffineTransform(CGAffineTransform(scaleX: scale, y: scale))
+            container.layer?.setAffineTransform(.identity)
             alphaValue = 1
         }
         orderFrontRegardless()
