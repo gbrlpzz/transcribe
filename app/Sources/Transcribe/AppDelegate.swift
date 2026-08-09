@@ -61,7 +61,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         showIdleIcon()
-        statusItem.button?.toolTip = "Transcribe — hold \(hotKeyLabel()) to dictate"
+        statusItem.button?.toolTip = "Transcribe — tap \(hotKeyLabel()) to start and stop dictation"
 
         let menu = NSMenu()
         menu.delegate = self
@@ -207,9 +207,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let hk = HotKey()
         hk.onAction = { [weak self] action in
+            // Tap-to-toggle: first tap starts recording, second tap stops and
+            // transcribes. No press-and-hold, no accidental releases.
             switch action {
-            case .pressed: self?.startDictation()
-            case .released: self?.stopDictation()
+            case .pressed: self?.toggleDictation()
+            case .released: break
             }
         }
         if !hk.register(modifiers: parsed.modifiers, keyCode: parsed.keyCode) {

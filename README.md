@@ -1,6 +1,6 @@
 # Transcribe
 
-**Fully local, native macOS dictation and transcription — with a first-class Prime Agent skill.** Hold a global hotkey anywhere, speak, and on-device Whisper types your words into the focused app — a free, private commercial dictation software alternative for everyone, and Prime Agent can dictate and transcribe files with the same local engine. Audio and transcripts are wiped automatically; nothing ever leaves your Mac.
+**Fully local, native macOS dictation and transcription — with a first-class Prime Agent skill.** Tap a global hotkey, speak, tap again, and on-device Whisper types your words into the focused app — a free, private commercial dictation software alternative for everyone, and Prime Agent can dictate and transcribe files with the same local engine. Audio and transcripts are wiped automatically; nothing ever leaves your Mac.
 
 ```
 ┌─────────────────────────────┐     ┌──────────────────────────┐
@@ -21,7 +21,7 @@
 
 - **Private** — Whisper runs entirely on your Mac. No cloud, no API keys, no subscription, no audio uploads.
 - **Accurate** — `whisper-large-v3-turbo` by default: near-large-v3 accuracy at several times real-time on Apple Silicon, with English + Italian (and 90+ languages) auto-detected.
-- **Native** — a real macOS menu-bar app: press-and-hold to talk, release to insert, exactly like commercial dictation software. Built with AppKit + Carbon, following Apple Human Interface Guidelines.
+- **Native** — a real macOS menu-bar app: tap-to-toggle dictation with a premium notch pill, built with AppKit + Carbon following Apple Human Interface Guidelines.
 - **Prime Agent–ready** — ships as an installable agent skill: Prime Agent can dictate and transcribe files with the same local engine, no cloud fallback. Use it standalone, with Prime Agent, or both.
 - **Self-cleaning** — every recording and transcript lives in a session folder and is wiped after the TTL (default 48 h, configurable). No bloat, ever.
 
@@ -58,7 +58,7 @@ local cache; after that everything works offline.
 
 Launch **Transcribe** (Spotlight → Transcribe). A mic icon appears in the menu bar.
 
-- **Hold `⌃␣`** (Control+Space), speak, release → text is pasted into whatever app is focused.
+- **Tap `⌃␣`** (Control+Space) to start recording, tap again to stop → text is transcribed and pasted into whatever app is focused. No press-and-hold, no accidental releases.
 - A floating black **audio pill** appears below the notch: a live waveform while recording, a spinner while transcribing, and a text preview when done — then it fades away on its own.
 - Click the menu-bar icon for **Model** / **Language** choices, **Transcribe File…**, and **Clean Up Old Recordings**.
 

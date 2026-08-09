@@ -33,7 +33,7 @@ The Python module `transcribe_skill` exposes:
 
 ## CLI (shell)
 ```bash
-transcribe                 # press Enter to start/stop, transcribe + paste (menu-bar app hotkey: ⌃␣)
+transcribe                 # press Enter to start/stop, transcribe + paste (menu-bar app: tap ⌃␣ to start/stop)
 transcribe file notes.m4a  # transcribe an existing file
 transcribe serve           # localhost engine server (used by the menu-bar app)
 transcribe clean           # wipe sessions older than the TTL

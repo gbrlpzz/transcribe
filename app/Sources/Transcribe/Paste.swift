@@ -10,6 +10,13 @@ enum Paste {
         pb.clearContents()
         pb.setString(text, forType: .string)
 
+        // let the pasteboard settle before synthesizing Cmd+V
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+            postCommandV()
+        }
+    }
+
+    private static func postCommandV() {
         guard let source = CGEventSource(stateID: .combinedSessionState) else { return }
         let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 9, keyDown: true) // kVK_ANSI_V
         keyDown?.flags = .maskCommand
