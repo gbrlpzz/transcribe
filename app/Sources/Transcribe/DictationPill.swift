@@ -98,7 +98,7 @@ final class DictationPill: NSPanel {
         waveform.translatesAutoresizingMaskIntoConstraints = false
         spinner.translatesAutoresizingMaskIntoConstraints = false
         spinner.style = .spinning
-        spinner.controlSize = .small
+        spinner.controlSize = .regular
         spinner.isDisplayedWhenStopped = false
         spinner.appearance = NSAppearance(named: .darkAqua)  // renders white on black
 
@@ -184,10 +184,11 @@ final class DictationPill: NSPanel {
         let cfg = NSImage.SymbolConfiguration(pointSize: 12, weight: .semibold)
         guard let img = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
             .withSymbolConfiguration(cfg) else { return nil }
+        // draw the glyph first, then paint the tint over its alpha (sourceAtop)
         return NSImage(size: img.size, flipped: false) { rect in
+            img.draw(in: rect)
             tint.set()
             rect.fill(using: .sourceAtop)
-            img.draw(in: rect)
             return true
         }
     }
