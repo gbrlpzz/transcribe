@@ -1,5 +1,5 @@
 import os
-from prime_transcribe.config import Config, load, save
+from transcribe.config import Config, load, save
 
 
 def test_roundtrip(tmp_path, monkeypatch):

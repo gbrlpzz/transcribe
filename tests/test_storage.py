@@ -1,6 +1,6 @@
 import os
 
-from prime_transcribe import storage
+from transcribe import storage
 
 
 def test_save_and_clean(tmp_path, monkeypatch):

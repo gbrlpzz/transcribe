@@ -15,7 +15,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Iterator
 
-from prime_transcribe.config import default_home
+from transcribe.config import default_home
 
 
 def sessions_dir() -> str:

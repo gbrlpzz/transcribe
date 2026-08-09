@@ -22,13 +22,13 @@ import subprocess
 import sys
 import time
 
-from prime_transcribe import __version__
-from prime_transcribe.audio import record_interactive
-from prime_transcribe.config import Config, config_path, load, save
-from prime_transcribe.engine import MODELS, available_backends, detect_backend, transcribe
-from prime_transcribe.paste import check_accessibility, paste_text
-from prime_transcribe.smarttext import apply_smart_text, strip_whitespace
-from prime_transcribe.storage import clean, save_session
+from transcribe import __version__
+from transcribe.audio import record_interactive
+from transcribe.config import Config, config_path, load, save
+from transcribe.engine import MODELS, available_backends, detect_backend, transcribe
+from transcribe.paste import check_accessibility, paste_text
+from transcribe.smarttext import apply_smart_text, strip_whitespace
+from transcribe.storage import clean, save_session
 
 APP_BUILD_SH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app", "build.sh")
 
@@ -152,7 +152,7 @@ def cmd_file(args, cfg: Config) -> int:
 
 
 def cmd_serve(args, cfg: Config) -> int:
-    from prime_transcribe.server import serve
+    from transcribe.server import serve
     serve(port=args.port, warm=None if not args.no_warm else False, verbose=True)
     return 0
 
@@ -211,6 +211,14 @@ def cmd_config(args, cfg: Config) -> int:
     return 0
 
 
+def _model_cached(repo: str) -> bool:
+    """True if the HF snapshot for this repo is already in the local cache."""
+    import os as _os
+    cache = _os.path.expanduser("~/.cache/huggingface/hub")
+    safe = repo.replace("/", "--")
+    return _os.path.isdir(_os.path.join(cache, f"models--{safe}"))
+
+
 def cmd_models(args, cfg: Config) -> int:
     backends = available_backends()
     print(f"installed backends: {', '.join(backends) or 'none'}")
@@ -219,7 +227,7 @@ def cmd_models(args, cfg: Config) -> int:
     for alias, info in MODELS.items():
         print(f"{alias:16s} {info['languages']}")
         for b in ("mlx", "faster"):
-            mark = "installed" if b in backends else "missing"
+            mark = "downloaded" if _model_cached(info[b]) else ("backend ready" if b in backends else "missing")
             print(f"    {b:8s} {info[b]}  [{mark}]")
     return 0
 
@@ -239,7 +247,7 @@ def cmd_doctor(args, cfg: Config) -> int:
     report("transcription backend", bool(backends),
            ", ".join(backends) or "run `uv pip install mlx-whisper` (Apple Silicon) or `uv pip install faster-whisper`")
 
-    from prime_transcribe.audio import find_input_device
+    from transcribe.audio import find_input_device
     dev = find_input_device(cfg.device)
     report("microphone device", True, f"avfoundation index {dev}")
 
@@ -247,8 +255,9 @@ def cmd_doctor(args, cfg: Config) -> int:
         report("accessibility (for paste)", check_accessibility(),
                "System Settings → Privacy & Security → Accessibility → enable your terminal")
 
-    stale = clean(0.0, dry_run=True)
-    report("no stale sessions", not stale, f"{len(stale)} file(s) older than TTL — run `transcribe clean`")
+    stale = clean(cfg.cleanup_ttl_hours, dry_run=True)
+    report("no stale sessions", not stale,
+           f"{len(stale)} file(s) older than {cfg.cleanup_ttl_hours:g}h — run `transcribe clean`")
     print()
     print("config file:", config_path())
     return 0 if ok else 1

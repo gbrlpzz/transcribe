@@ -1,4 +1,4 @@
-from prime_transcribe.smarttext import apply_smart_text, strip_whitespace
+from transcribe.smarttext import apply_smart_text, strip_whitespace
 
 
 def test_punctuation():

@@ -20,7 +20,9 @@ final class HotKey {
     )
 
     /// Register a hotkey. `modifiers` uses Carbon masks (cmdKey, optionKey, ...).
-    func register(modifiers: UInt32, keyCode: UInt32) {
+    /// Returns false if the combination is already taken by another app.
+    @discardableResult
+    func register(modifiers: UInt32, keyCode: UInt32) -> Bool {
         unregister()
 
         var eventType = [
@@ -48,7 +50,9 @@ final class HotKey {
                                          GetApplicationEventTarget(), 0, &hotKeyRef)
         if status != noErr {
             NSLog("Transcribe: failed to register hotkey (status %d)", status)
+            return false
         }
+        return true
     }
 
     func unregister() {

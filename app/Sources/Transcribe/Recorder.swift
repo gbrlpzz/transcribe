@@ -36,6 +36,13 @@ final class Recorder: NSObject, AVAudioRecorderDelegate {
         recorder?.stop()
     }
 
+    /// Current input level as 0...1 (from AVAudioRecorder metering).
+    func level() -> Float {
+        recorder?.updateMeters()
+        let db = recorder?.averagePower(forChannel: 0) ?? -160
+        return max(0, min(1, (db + 55) / 55))
+    }
+
     func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) {
         // keep the file; the engine will consume it
         recorder.stop()

@@ -91,6 +91,7 @@ def _cleanup_spacing(text: str) -> str:
     text = re.sub(r"[ \t]+([\u201d\'\]\)\}])", r"\1", text)  # before closers
     text = re.sub(r"([\u201c\'\[\(\{])([ \t]+)", r"\1", text)  # after openers
     text = re.sub(r"[ \t]*\n[ \t]*", "\n", text)              # around newlines
+    text = re.sub(r"([?!,;:])\.", r"\1", text)              # "?." -> "?"
     return text
 
 

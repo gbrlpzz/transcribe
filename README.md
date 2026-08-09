@@ -32,7 +32,7 @@ Requires macOS 14+, [Homebrew](https://brew.sh), and an Apple Silicon Mac for th
 ```bash
 # 1. engine + agent skill (one command, installs a `transcribe` CLI)
 brew install ffmpeg
-uv tool install --from git+https://github.com/gbrlpzz/transcribe prime-transcribe
+uv tool install --from git+https://github.com/gbrlpzz/transcribe transcribe
 bash <(curl -fsSL https://raw.githubusercontent.com/gbrlpzz/transcribe/main/scripts/install-skill.sh)
 
 # 2. native menu-bar app
@@ -56,9 +56,9 @@ local cache; after that everything works offline.
 
 Launch **Transcribe** (Spotlight → Transcribe). A mic icon appears in the menu bar.
 
-- **Hold `⌃⌥␣`** (Control+Option+Space), speak, release → text is pasted into whatever app is focused.
+- **Hold `⌃␣`** (Control+Space), speak, release → text is pasted into whatever app is focused.
+- A floating black **audio pill** appears below the notch: a live waveform while recording, a spinner while transcribing, and a text preview when done — then it fades away on its own.
 - Click the menu-bar icon for **Model** / **Language** choices, **Transcribe File…**, and **Clean Up Old Recordings**.
-- While recording, the icon turns red with a live timer.
 
 ### CLI
 
@@ -123,7 +123,7 @@ See [docs/PRIVACY.md](docs/PRIVACY.md).
   "paste": true,
   "smart_text": true,
   "cleanup_ttl_hours": 48.0,
-  "hotkey": "ctrl+option+space",
+  "hotkey": "ctrl+space",
   "port": 8765
 }
 ```
@@ -140,7 +140,7 @@ make doctor      # diagnose
 Layout:
 
 ```
-prime_transcribe/   Python engine: audio capture, Whisper backends, smart text,
+transcribe/   Python engine: audio capture, Whisper backends, smart text,
                     session storage, localhost server, CLI
 app/                native menu-bar app (Swift, AppKit + Carbon)
 skill/              Prime Agent skill (SKILL.md + transcribe_skill.py)

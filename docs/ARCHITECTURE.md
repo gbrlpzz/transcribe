@@ -17,7 +17,7 @@ between them.
 │  transcribe   │
 └───────────────┘
 ┌──────────────────────────┐
-│  Prime Agent skill       │  import prime_transcribe → same engine
+│  Prime Agent skill       │  import transcribe → same engine
 │  transcribe_skill.py     │
 └──────────────────────────┘
 ```
@@ -26,12 +26,12 @@ between them.
 
 | Module | Responsibility |
 |---|---|
-| `prime_transcribe/audio.py` | Microphone capture via ffmpeg's AVFoundation input → raw s16le → wrapped as 16 kHz mono WAV. Zero extra deps beyond ffmpeg. |
-| `prime_transcribe/engine.py` | Whisper backends. `mlx-whisper` on Apple Silicon, `faster-whisper` fallback. Model registry with short aliases. |
-| `prime_transcribe/smarttext.py` | Spoken-punctuation post-processing: "comma" → `,`, "new line" → newline, "delete that" → removes previous word. Whole-word matching so ordinary speech is untouched. |
-| `prime_transcribe/storage.py` | Session store: `sessions/YYYYMMDD/<id>.wav` + `<id>.json`, with time-to-live cleanup. |
-| `prime_transcribe/server.py` | `ThreadingHTTPServer` on 127.0.0.1. `/health`, `/transcribe`, `/reload`. Warmed model, serialized by a lock. |
-| `prime_transcribe/cli.py` | Subcommands: `listen`, `file`, `serve`, `clean`, `config`, `models`, `doctor`, `app`. |
+| `transcribe/audio.py` | Microphone capture via ffmpeg's AVFoundation input → raw s16le → wrapped as 16 kHz mono WAV. Zero extra deps beyond ffmpeg. |
+| `transcribe/engine.py` | Whisper backends. `mlx-whisper` on Apple Silicon, `faster-whisper` fallback. Model registry with short aliases. |
+| `transcribe/smarttext.py` | Spoken-punctuation post-processing: "comma" → `,`, "new line" → newline, "delete that" → removes previous word. Whole-word matching so ordinary speech is untouched. |
+| `transcribe/storage.py` | Session store: `sessions/YYYYMMDD/<id>.wav` + `<id>.json`, with time-to-live cleanup. |
+| `transcribe/server.py` | `ThreadingHTTPServer` on 127.0.0.1. `/health`, `/transcribe`, `/reload`. Warmed model, serialized by a lock. |
+| `transcribe/cli.py` | Subcommands: `listen`, `file`, `serve`, `clean`, `config`, `models`, `doctor`, `app`. |
 | `app/` | Swift menu-bar app (AppKit + Carbon). Global hotkey, AVAudioRecorder, pasteboard + Cmd+V paste, engine lifecycle. |
 | `skill/` | Prime Agent skill: `SKILL.md` (markdown contract) + `transcribe_skill.py` (Python API). |
 

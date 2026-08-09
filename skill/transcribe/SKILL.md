@@ -32,7 +32,7 @@ The Python module `transcribe_skill` exposes:
 
 ## CLI (shell)
 ```bash
-transcribe                 # press Enter to start/stop, transcribe + paste
+transcribe                 # press Enter to start/stop, transcribe + paste (menu-bar app hotkey: ⌃␣)
 transcribe file notes.m4a  # transcribe an existing file
 transcribe serve           # localhost engine server (used by the menu-bar app)
 transcribe clean           # wipe sessions older than the TTL
@@ -50,7 +50,7 @@ transcribe app build       # build the native menu-bar app
    chunks is handled automatically by the engine; just pass the whole file.
 3. **Cleanup**: sessions auto-expire (default 48 h). If the user asks about
    disk space or privacy, run `clean()` and report what was removed.
-4. **Setup on a new machine**: `uv tool install prime-transcribe` (or
+4. **Setup on a new machine**: `uv tool install transcribe` (or
    `uv pip install -e .` from the repo), `brew install ffmpeg`, then
    `transcribe doctor`.
 

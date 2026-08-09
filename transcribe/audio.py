@@ -118,29 +118,11 @@ def _pcm_to_wav(pcm_path: str, wav_path: str, sample_rate: int) -> None:
 
 def record_interactive(device: str = "auto", sample_rate: int = 16000,
                        prompt: str | None = None) -> str:
-    """Record until the user presses Enter; returns the WAV path.
-
-    Run in a worker thread so the main thread can wait for input.
-    """
+    """Record until the user presses Enter; returns the WAV path."""
     if prompt is None:
         prompt = "Recording… press Enter to stop"
     rec = Recorder(device=device, sample_rate=sample_rate)
-    result: dict[str, str] = {}
-
-    def _run():
-        try:
-            rec.start()
-            result["wav"] = rec.stop()
-        except Exception as exc:  # pragma: no cover
-            result["error"] = str(exc)
-
-    thread = threading.Thread(target=_run, daemon=True)
-    thread.start()
-    # give ffmpeg a moment to open the device before prompting
-    time.sleep(0.6)
+    rec.start()
     print(prompt, file=sys.stderr)
     input()
-    thread.join(timeout=15)
-    if "error" in result:
-        raise RuntimeError(result["error"])
-    return result["wav"]
+    return rec.stop()

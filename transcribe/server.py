@@ -19,9 +19,9 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
-from prime_transcribe.config import Config, load
-from prime_transcribe.engine import Transcriber
-from prime_transcribe.storage import clean, save_session
+from transcribe.config import Config, load
+from transcribe.engine import Transcriber
+from transcribe.storage import clean, save_session
 
 
 class _Handler(BaseHTTPRequestHandler):

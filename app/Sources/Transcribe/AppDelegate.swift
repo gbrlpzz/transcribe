@@ -7,14 +7,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var hotKey: HotKey?
     private let recorder = Recorder()
+    private let pill = DictationPill()
     private var engine: EngineClient!
     private var config = AppConfig.load()
 
     // state
     private enum DictationState { case idle, recording, transcribing }
     private var state: DictationState = .idle
-    private var recordingStart: Date?
-    private var recordingTimer: Timer?
+    private var levelTimer: Timer?
 
     // menu handles
     private var setupItem: NSMenuItem!
@@ -147,40 +147,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.button?.imagePosition = .imageOnly
         statusItem.button?.contentTintColor = nil
         statusItem.button?.title = ""
-        recordingTimer?.invalidate()
-        recordingTimer = nil
     }
 
     private func showRecording() {
-        statusItem.button?.image = Self.templateImage("record.circle")
+        statusItem.button?.image = Self.templateImage("mic")
         statusItem.button?.contentTintColor = .systemRed
-        statusItem.button?.imagePosition = .imageLeading
-        recordingStart = Date()
-        updateRecordingTime()
-        recordingTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
-            self?.updateRecordingTime()
+        pill.show(.recording)
+        levelTimer?.invalidate()
+        levelTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            self?.pill.updateLevel(self?.recorder.level() ?? 0)
         }
-    }
-
-    private func updateRecordingTime() {
-        guard let start = recordingStart else { return }
-        let s = Int(Date().timeIntervalSince(start))
-        statusItem.button?.title = String(format: " %d:%02d", s / 60, s % 60)
     }
 
     private func showTranscribing() {
-        statusItem.button?.image = Self.templateImage("waveform")
+        levelTimer?.invalidate()
+        levelTimer = nil
         statusItem.button?.contentTintColor = nil
-        statusItem.button?.title = ""
+        pill.show(.transcribing)
     }
 
     private func flashResult(_ text: String) {
-        let preview = String(text.prefix(28)) + (text.count > 28 ? "…" : "")
-        statusItem.button?.image = Self.templateImage("checkmark.circle")
-        statusItem.button?.title = "  \(preview)"
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
-            self?.showIdleIcon()
-        }
+        statusItem.button?.contentTintColor = nil
+        pill.show(.result(text))
     }
 
     // MARK: - Setup & state rows
@@ -224,7 +212,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case .released: self?.stopDictation()
             }
         }
-        hk.register(modifiers: parsed.modifiers, keyCode: parsed.keyCode)
+        if !hk.register(modifiers: parsed.modifiers, keyCode: parsed.keyCode) {
+            presentAlert(title: "Hotkey Not Available",
+                         message: "\(hotKeyLabel()) is already in use by another app.\n\nChange it with:\n    transcribe config set hotkey \"ctrl+option+space\"")
+        }
         hotKey = hk
     }
 
@@ -287,7 +278,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.state = .idle
                 self.showIdleIcon()
                 self.presentAlert(title: "Engine Not Found",
-                                  message: "Install the engine first:\n\n    uv tool install prime-transcribe\n\nThen restart Transcribe.")
+                                  message: "Install the engine first:\n\n    uv tool install transcribe\n\nThen restart Transcribe.")
                 return
             }
             self.engineUp = true
@@ -298,6 +289,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     let text = tr.text.trimmingCharacters(in: .whitespacesAndNewlines)
                     if text.isEmpty {
                         self.showIdleIcon()
+                        self.pill.show(.hidden)
                         self.presentAlert(title: "Nothing Heard",
                                           message: "The recording was empty. Try speaking closer to the microphone.")
                     } else if self.config.paste && AXIsProcessTrusted() {
@@ -312,6 +304,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     }
                 case .failure(let error):
                     self.showIdleIcon()
+                    self.pill.show(.hidden)
                     self.presentAlert(title: "Transcription Failed",
                                       message: error.localizedDescription)
                 }
@@ -362,7 +355,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard ok else {
                     self.showIdleIcon()
                     self.presentAlert(title: "Engine Not Found",
-                                      message: "Run `uv tool install prime-transcribe` first.")
+                                      message: "Run `uv tool install transcribe` first.")
                     return
                 }
                 self.engine.transcribe(path: url, language: self.config.language) { result in

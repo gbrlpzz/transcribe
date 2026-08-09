@@ -18,13 +18,13 @@ import sys
 
 # Make the installed package importable even when the repo isn't on sys.path.
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if os.path.isdir(os.path.join(_REPO, "prime_transcribe")):
+if os.path.isdir(os.path.join(_REPO, "transcribe")):
     sys.path.insert(0, _REPO)
 
-from prime_transcribe.config import load  # noqa: E402
-from prime_transcribe.engine import MODELS, available_backends, detect_backend, transcribe as _engine_transcribe  # noqa: E402
-from prime_transcribe.smarttext import apply_smart_text, strip_whitespace  # noqa: E402
-from prime_transcribe.storage import clean as _clean  # noqa: E402
+from transcribe.config import load  # noqa: E402
+from transcribe.engine import MODELS, available_backends, detect_backend, transcribe as _engine_transcribe  # noqa: E402
+from transcribe.smarttext import apply_smart_text, strip_whitespace  # noqa: E402
+from transcribe.storage import clean as _clean  # noqa: E402
 
 
 def transcribe_audio(path: str, language: str = "auto", model: str | None = None,
@@ -50,8 +50,8 @@ def dictate(seconds: float | None = None, paste: bool = False) -> dict:
     Interactive by default: press Enter to stop. Returns the same dict shape as
     transcribe_audio plus 'recording' (session wav path, if kept).
     """
-    from prime_transcribe.audio import record_interactive
-    from prime_transcribe.storage import save_session
+    from transcribe.audio import record_interactive
+    from transcribe.storage import save_session
 
     cfg = load()
     wav = record_interactive(device=cfg.device, sample_rate=cfg.sample_rate)
@@ -66,7 +66,7 @@ def dictate(seconds: float | None = None, paste: bool = False) -> dict:
     except OSError:
         pass
     if paste:
-        from prime_transcribe.paste import paste_text
+        from transcribe.paste import paste_text
         paste_text(result["text"])
     return result
 
@@ -93,8 +93,8 @@ def models() -> str:
 def doctor() -> str:
     """Diagnostics summary."""
     import shutil
-    from prime_transcribe.paste import check_accessibility
-    from prime_transcribe.audio import find_input_device
+    from transcribe.paste import check_accessibility
+    from transcribe.audio import find_input_device
     cfg = load()
     lines = []
     ff = shutil.which("ffmpeg")

@@ -1,6 +1,6 @@
 import Foundation
 
-/// Mirrors `prime_transcribe/config.py` so the app and the Python engine share
+/// Mirrors `transcribe/config.py` so the app and the Python engine share
 /// one configuration file at ~/Library/Application Support/transcribe/config.json.
 struct AppConfig: Codable {
     var model: String = "mlx-community/whisper-large-v3-turbo"
@@ -14,7 +14,7 @@ struct AppConfig: Codable {
     var keepTranscripts: Bool = true
     var port: Int = 8765
     var warmOnStart: Bool = true
-    var hotkey: String = "ctrl+option+space"
+    var hotkey: String = "ctrl+space"
     var pasteMode: String = "cmd-v"
     var launchAtLogin: Bool = false
 

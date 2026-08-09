@@ -13,9 +13,13 @@ itself never leaves the machine.
 
 from __future__ import annotations
 
+import os
 import platform
 import time
 from typing import Any
+
+# models are cached locally; hide the "Fetching 4 files" hub flash on repeat runs
+os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
 
 # alias -> (mlx repo, faster-whisper repo, languages)
 MODELS: dict[str, dict[str, str]] = {
@@ -108,14 +112,15 @@ class Transcriber:
     def transcribe(self, audio_path: str, *, language: str | None = None,
                    verbose: bool = False) -> dict[str, Any]:
         self.load()
-        lang = language or (None if self.language == "auto" else self.language)
+        requested = language or self.language   # per-call overrides instance
+        lang = None if requested == "auto" else requested
         t0 = time.time()
         if self.backend == "mlx":
             result = self._mlx.transcribe(
                 audio_path,
                 path_or_hf_repo=self.model,
                 language=lang,
-                verbose=verbose,
+                verbose=None if not verbose else verbose,
             )
             text = result.get("text", "").strip()
             detected = result.get("language", lang or "")

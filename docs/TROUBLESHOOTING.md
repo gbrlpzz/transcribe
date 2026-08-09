@@ -15,9 +15,9 @@ Accessibility permission needed for pasting.
 Install a backend into the environment where `transcribe` is installed:
 
 ```bash
-uv tool install --from git+https://github.com/gbrlpzz/transcribe prime-transcribe     --with mlx-whisper            # Apple Silicon
+uv tool install --from git+https://github.com/gbrlpzz/transcribe transcribe     --with mlx-whisper            # Apple Silicon
 # or
-uv tool install --from git+https://github.com/gbrlpzz/transcribe prime-transcribe     --with faster-whisper         # Intel Mac / Linux
+uv tool install --from git+https://github.com/gbrlpzz/transcribe transcribe     --with faster-whisper         # Intel Mac / Linux
 ```
 
 ### Pasting does nothing
@@ -31,7 +31,7 @@ clipboard instead of pasted.
 ### The menu-bar app says "Engine not found"
 The app looks for the `transcribe` binary in `/opt/homebrew/bin`,
 `/usr/local/bin`, `~/.local/bin`, and `PATH`. Install it with
-`uv tool install prime-transcribe` (after `uv tool install --from …`, above).
+`uv tool install transcribe` (after `uv tool install --from …`, above).
 
 ### First dictation is slow / downloads for minutes
 The first run downloads the model (~1.6 GB for `large-v3-turbo`). Subsequent

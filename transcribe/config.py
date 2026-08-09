@@ -51,7 +51,7 @@ class Config:
     port: int = 8765
     warm_on_start: bool = True      # preload the model when the server starts
     # --- native app --------------------------------------------------------
-    hotkey: str = "ctrl+option+space"  # Carbon modifier names + key
+    hotkey: str = "ctrl+space"  # Carbon modifier names + key
     paste_mode: str = "cmd-v"       # "cmd-v" (pasteboard + Cmd+V) | "keystroke"
     launch_at_login: bool = False
 
