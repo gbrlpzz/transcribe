@@ -406,7 +406,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func showAbout() {
         let alert = NSAlert()
         alert.messageText = "Transcribe"
-        alert.informativeText = "Fully local dictation and transcription for Prime Agent.\n\nWhisper runs on this Mac — nothing leaves your machine. Audio and transcripts are wiped automatically after \(Int(config.cleanupTtlHours)) hours."
+        alert.informativeText = "Fully local dictation and transcription.\n\nWhisper runs on this Mac — nothing leaves your machine. Audio and transcripts are wiped automatically after \(Int(config.cleanupTtlHours)) hours. Ships with a Prime Agent skill."
         alert.addButton(withTitle: "OK")
         alert.runModal()
     }

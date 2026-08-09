@@ -7,9 +7,10 @@ compatibility: prime-agent
 # Transcribe — local dictation & transcription
 
 `transcribe` is a fully local, native macOS dictation and transcription tool
-(commercial dictation software alternative) with a menu-bar app, a CLI, and this agent skill.
-Whisper runs on-device via MLX (Apple Silicon) or faster-whisper; audio and
-transcripts are auto-wiped after the configured TTL (default 48 h).
+(commercial dictation software alternative) for general use — this skill plugs the same local
+engine into Prime Agent. Whisper runs on-device via MLX (Apple Silicon) or
+faster-whisper; audio and transcripts are auto-wiped after the configured TTL
+(default 48 h).
 
 ## When to use
 - The user wants to **dictate** text (record microphone → transcribed text).

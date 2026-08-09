@@ -1,8 +1,9 @@
 # Architecture
 
 Transcribe is deliberately small: one Python engine, two thin front-ends (a
-native menu-bar app and a Prime Agent skill), and a localhost HTTP server
-between them.
+native menu-bar app and an optional Prime Agent skill), and a localhost HTTP
+server between them. It is a general-purpose transcription tool — the agent
+skill is an add-on for Prime Agent users, not a requirement.
 
 ```
 ┌───────────────┐   WAV (16 kHz mono)    ┌───────────────────────────┐

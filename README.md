@@ -1,6 +1,6 @@
 # Transcribe
 
-**Fully local, native macOS dictation and transcription for Prime Agent.** Hold a global hotkey anywhere, speak, and on-device Whisper types your words into the focused app — a free, private commercial dictation software alternative. Audio and transcripts are wiped automatically, nothing ever leaves your Mac, and Prime Agent can transcribe files with the same local engine.
+**Fully local, native macOS dictation and transcription — with a first-class Prime Agent skill.** Hold a global hotkey anywhere, speak, and on-device Whisper types your words into the focused app — a free, private commercial dictation software alternative for everyone, and Prime Agent can dictate and transcribe files with the same local engine. Audio and transcripts are wiped automatically; nothing ever leaves your Mac.
 
 ```
 ┌─────────────────────────────┐     ┌──────────────────────────┐
@@ -22,7 +22,7 @@
 - **Private** — Whisper runs entirely on your Mac. No cloud, no API keys, no subscription, no audio uploads.
 - **Accurate** — `whisper-large-v3-turbo` by default: near-large-v3 accuracy at several times real-time on Apple Silicon, with English + Italian (and 90+ languages) auto-detected.
 - **Native** — a real macOS menu-bar app: press-and-hold to talk, release to insert, exactly like commercial dictation software. Built with AppKit + Carbon, following Apple Human Interface Guidelines.
-- **Prime Agent–native** — ships as an installable agent skill: Prime Agent can transcribe files and dictation with the same local engine, no cloud fallback.
+- **Prime Agent–ready** — ships as an installable agent skill: Prime Agent can dictate and transcribe files with the same local engine, no cloud fallback. Use it standalone, with Prime Agent, or both.
 - **Self-cleaning** — every recording and transcript lives in a session folder and is wiped after the TTL (default 48 h, configurable). No bloat, ever.
 
 ## Install
@@ -30,10 +30,9 @@
 Requires macOS 14+, [Homebrew](https://brew.sh), and an Apple Silicon Mac for the default engine (Intel Macs use the faster-whisper fallback).
 
 ```bash
-# 1. engine + agent skill (one command, installs a `transcribe` CLI)
+# 1. engine + CLI (one command)
 brew install ffmpeg
 uv tool install --from git+https://github.com/gbrlpzz/transcribe transcribe
-bash <(curl -fsSL https://raw.githubusercontent.com/gbrlpzz/transcribe/main/scripts/install-skill.sh)
 
 # 2. native menu-bar app
 git clone https://github.com/gbrlpzz/transcribe.git && cd transcribe
@@ -41,6 +40,9 @@ make app-install          # builds and copies Transcribe.app to /Applications
 
 # 3. first-run checks
 transcribe doctor
+
+# 4. optional — Prime Agent skill (only if you use Prime Agent)
+bash <(curl -fsSL https://raw.githubusercontent.com/gbrlpzz/transcribe/main/scripts/install-skill.sh)
 ```
 
 The first dictation downloads the model (~1.6 GB) from Hugging Face into the
@@ -74,9 +76,9 @@ transcribe doctor          # diagnose the setup
 transcribe app build       # build the native app from source
 ```
 
-### Prime Agent
+### Prime Agent (optional)
 
-The skill makes dictation and transcription first-class agent capabilities:
+The skill makes dictation and transcription first-class agent capabilities — the same local engine, no cloud fallback:
 
 ```python
 import transcribe_skill

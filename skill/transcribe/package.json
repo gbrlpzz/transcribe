@@ -1,7 +1,7 @@
 {
   "name": "transcribe",
   "version": "0.1.1",
-  "description": "Fully local dictation and transcription for Prime Agent: Whisper/MLX on-device engine, smart text, session TTL cleanup. Use to dictate or transcribe audio files locally.",
+  "description": "Fully local dictation and transcription (Whisper/MLX on-device engine, smart text, session TTL cleanup) plugged into Prime Agent. Use to dictate or transcribe audio files locally — no cloud.",
   "main": "index.py",
   "python_import": "transcribe_skill",
   "callable": "TranscribeSkill",
