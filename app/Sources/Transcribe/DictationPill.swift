@@ -237,9 +237,9 @@ final class DictationPill: NSPanel {
     }
 }
 
-/// Apple-native waveform: a single continuous filled silhouette (Voice
-/// Memos style) that breathes symmetrically around the center. No discrete
-/// bars, no gaps — just a smooth, calm, native-looking wave.
+/// Flowing vertical bars: a symmetric bell of rounded bars whose heights ripple
+/// with a traveling wave and the live mic level — the classic dictation wave
+/// (commercial dictation software style). Pure white, always balanced around the center.
 final class WaveformView: NSView {
     var level: Float = 0 {
         didSet { needsDisplay = true }
@@ -248,6 +248,8 @@ final class WaveformView: NSView {
     private var displayLevel: Float = 0
     private var phase: Float = 0
     private var timer: Timer?
+    private let barCount = 31
+    private let centerIndex = 15
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -273,38 +275,34 @@ final class WaveformView: NSView {
     override var intrinsicContentSize: NSSize { NSSize(width: 80, height: 20) }
 
     override func draw(_ dirtyRect: NSRect) {
-        let w = bounds.width
-        let h = bounds.height
-        let midY = h / 2
+        let barW: CGFloat = 1.6
+        let gap: CGFloat = 0.9
+        let totalW = CGFloat(barCount) * (barW + gap) - gap
+        let maxH = bounds.height
+        var x = (bounds.width - totalW) / 2
         let env = CGFloat(displayLevel)
-        let breath = 0.5 + 0.5 * CGFloat(sin(Double(phase)))
-        let level = env * breath
 
-        let samples = 72
-        let step = w / CGFloat(samples - 1)
-        let path = NSBezierPath()
-
-        func heightAt(_ x: CGFloat) -> CGFloat {
-            let t = (x - w / 2) / (w / 2)          // -1 .. 1
-            let taper = pow(1 - t * t, 0.9)        // soft rounded bell
-            return (h / 2) * taper * (0.08 + 0.92 * level)
+        // envelope: symmetric bell taper x traveling wave x mic level
+        var heights = [CGFloat](repeating: 0, count: barCount)
+        for i in 0..<barCount {
+            let dist = CGFloat(abs(i - centerIndex)) / CGFloat(centerIndex)
+            let taper = 1.0 - dist * dist * 0.80
+            let wave = 0.5 + 0.5 * CGFloat(sin(Double(phase) + Double(i) * 0.55))
+            heights[i] = maxH * taper * (0.10 + 0.90 * env * wave)
+        }
+        // one smoothing pass so the flow reads continuous
+        var smoothed = heights
+        for i in 1..<(barCount - 1) {
+            smoothed[i] = (heights[i - 1] + 2 * heights[i] + heights[i + 1]) / 4
         }
 
-        // top edge, left -> right
-        path.move(to: NSPoint(x: 0, y: midY))
-        for i in 0..<samples {
-            let x = CGFloat(i) * step
-            path.line(to: NSPoint(x: x, y: midY - heightAt(x)))
+        NSColor.white.withAlphaComponent(0.95).setFill()
+        for i in 0..<barCount {
+            let rect = NSRect(x: x, y: (bounds.height - smoothed[i]) / 2,
+                              width: barW, height: max(smoothed[i], 2))
+            NSBezierPath(roundedRect: rect, xRadius: barW / 2, yRadius: barW / 2).fill()
+            x += barW + gap
         }
-        // bottom edge, right -> left (mirrored)
-        for i in stride(from: samples - 1, through: 0, by: -1) {
-            let x = CGFloat(i) * step
-            path.line(to: NSPoint(x: x, y: midY + heightAt(x)))
-        }
-        path.close()
-
-        NSColor.white.withAlphaComponent(0.92).setFill()
-        path.fill()
     }
 }
 

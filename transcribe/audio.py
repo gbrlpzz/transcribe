@@ -20,7 +20,16 @@ import time
 
 def ffmpeg_path() -> str | None:
     import shutil
-    return shutil.which("ffmpeg")
+    found = shutil.which("ffmpeg")
+    if found:
+        return found
+    # fall back to the standard Homebrew/usr locations when PATH is minimal
+    # (e.g. when the engine is spawned by a GUI app)
+    for candidate in ("/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg",
+                      "/usr/bin/ffmpeg", "/opt/homebrew/opt/ffmpeg/bin/ffmpeg"):
+        if os.path.exists(candidate):
+            return candidate
+    return None
 
 
 def list_input_devices() -> list[dict[str, str]]:

@@ -82,6 +82,12 @@ final class EngineClient {
             proc.arguments = ["serve", "--port", "\(port)"]
             proc.standardOutput = FileHandle.nullDevice
             proc.standardError = FileHandle.nullDevice
+            // GUI apps launched via `open` get a minimal PATH without Homebrew,
+            // which would hide ffmpeg from the engine. Prepend the usual spots.
+            var env = ProcessInfo.processInfo.environment
+            let extra = "/opt/homebrew/bin:/usr/local/bin:/opt/homebrew/sbin:/usr/local/sbin"
+            env["PATH"] = (env["PATH"].map { extra + ":" + $0 } ?? extra)
+            proc.environment = env
             do {
                 try proc.run()
             } catch {

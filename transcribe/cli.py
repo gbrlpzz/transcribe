@@ -240,7 +240,8 @@ def cmd_doctor(args, cfg: Config) -> int:
         ok = ok and good
         print(f"{'✓' if good else '✗'} {name}{(' — ' + detail) if detail else ''}")
 
-    ff = shutil.which("ffmpeg")
+    from prime_transcribe.audio import ffmpeg_path
+    ff = ffmpeg_path()
     report("ffmpeg", bool(ff), ff or "install with `brew install ffmpeg`")
 
     backends = available_backends()
