@@ -20,8 +20,8 @@ final class DictationPill: NSPanel {
     private let spinner = NSProgressIndicator()
     private let container = NSView()
 
-    private static let pillWidth: CGFloat = 168
-    private static let pillHeight: CGFloat = 40
+    private static let pillWidth: CGFloat = 100
+    private static let pillHeight: CGFloat = 34
 
     init() {
         super.init(contentRect: NSRect(x: 0, y: 0, width: Self.pillWidth, height: Self.pillHeight),
@@ -77,7 +77,7 @@ final class DictationPill: NSPanel {
         ])
 
         label.translatesAutoresizingMaskIntoConstraints = false
-        label.font = .systemFont(ofSize: 12, weight: .medium)
+        label.font = .systemFont(ofSize: 11, weight: .medium)
         label.textColor = .white
         label.lineBreakMode = .byTruncatingTail
         label.alignment = .center
@@ -98,8 +98,8 @@ final class DictationPill: NSPanel {
 
             waveform.centerXAnchor.constraint(equalTo: container.centerXAnchor),
             waveform.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-            waveform.widthAnchor.constraint(equalToConstant: 104),
-            waveform.heightAnchor.constraint(equalToConstant: 24),
+            waveform.widthAnchor.constraint(equalToConstant: 80),
+            waveform.heightAnchor.constraint(equalToConstant: 20),
         ])
     }
 
@@ -211,8 +211,8 @@ final class WaveformView: NSView {
     private var displayLevel: Float = 0
     private var phase: Float = 0
     private var timer: Timer?
-    private let barCount = 41
-    private let centerIndex = 20
+    private let barCount = 31
+    private let centerIndex = 15
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -235,11 +235,11 @@ final class WaveformView: NSView {
         }
     }
 
-    override var intrinsicContentSize: NSSize { NSSize(width: 104, height: 24) }
+    override var intrinsicContentSize: NSSize { NSSize(width: 80, height: 20) }
 
     override func draw(_ dirtyRect: NSRect) {
-        let barW: CGFloat = 2.2
-        let gap: CGFloat = 1.4
+        let barW: CGFloat = 1.6
+        let gap: CGFloat = 1.0
         let totalW = CGFloat(barCount) * (barW + gap) - gap
         let maxH = bounds.height
         var x = (bounds.width - totalW) / 2
@@ -259,8 +259,9 @@ final class WaveformView: NSView {
         }
 
         for i in 0..<barCount {
-            let hot = env > 0.75 && i >= barCount - 4
-            (hot ? NSColor.systemRed : NSColor.white.withAlphaComponent(0.95)).setFill()
+            // fully symmetric, pure white — no red accents to skew the visual
+            // center of the pill relative to the notch
+            NSColor.white.withAlphaComponent(0.95).setFill()
             let rect = NSRect(x: x, y: (bounds.height - smoothed[i]) / 2,
                               width: barW, height: max(smoothed[i], 2))
             NSBezierPath(roundedRect: rect, xRadius: barW / 2, yRadius: barW / 2).fill()
