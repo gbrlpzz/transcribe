@@ -20,8 +20,8 @@ final class DictationPill: NSPanel {
     private let spinner = NSProgressIndicator()
     private let container = NSView()
 
-    private static let pillWidth: CGFloat = 150
-    private static let pillHeight: CGFloat = 36
+    private static let pillWidth: CGFloat = 168
+    private static let pillHeight: CGFloat = 40
 
     init() {
         super.init(contentRect: NSRect(x: 0, y: 0, width: Self.pillWidth, height: Self.pillHeight),
@@ -51,34 +51,22 @@ final class DictationPill: NSPanel {
             container.bottomAnchor.constraint(equalTo: contentView!.bottomAnchor),
         ])
 
-        // frosted-glass background: blur what is behind the window (.behindWindow),
-        // dark tint on top, hairline border for definition
-        let glass = NSVisualEffectView()
-        glass.material = .hudWindow
-        glass.blendingMode = .behindWindow
-        glass.state = .active
-        glass.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(glass)
+        // pitch-black capsule with a hairline border (per the HIG: simple,
+        // high-contrast transient indicator — no failed-transparency grays)
+        let black = NSView()
+        black.wantsLayer = true
+        black.layer?.backgroundColor = NSColor.black.cgColor
+        black.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(black)
         NSLayoutConstraint.activate([
-            glass.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            glass.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            glass.topAnchor.constraint(equalTo: container.topAnchor),
-            glass.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-        ])
-        let tint = NSView()
-        tint.wantsLayer = true
-        tint.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.38).cgColor
-        tint.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(tint)
-        NSLayoutConstraint.activate([
-            tint.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            tint.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            tint.topAnchor.constraint(equalTo: container.topAnchor),
-            tint.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            black.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            black.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            black.topAnchor.constraint(equalTo: container.topAnchor),
+            black.bottomAnchor.constraint(equalTo: container.bottomAnchor),
         ])
         let border = NSView()
         border.wantsLayer = true
-        border.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.10).cgColor
+        border.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.14).cgColor
         border.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(border)
         NSLayoutConstraint.activate([
@@ -89,7 +77,7 @@ final class DictationPill: NSPanel {
         ])
 
         label.translatesAutoresizingMaskIntoConstraints = false
-        label.font = .systemFont(ofSize: 11, weight: .medium)
+        label.font = .systemFont(ofSize: 12, weight: .medium)
         label.textColor = .white
         label.lineBreakMode = .byTruncatingTail
         label.alignment = .center
@@ -110,25 +98,31 @@ final class DictationPill: NSPanel {
 
             waveform.centerXAnchor.constraint(equalTo: container.centerXAnchor),
             waveform.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-            waveform.widthAnchor.constraint(equalToConstant: 72),
-            waveform.heightAnchor.constraint(equalToConstant: 16),
+            waveform.widthAnchor.constraint(equalToConstant: 104),
+            waveform.heightAnchor.constraint(equalToConstant: 24),
         ])
     }
 
     // MARK: - Placement
 
     private func positionBelowMenuBar() {
-        // primary display (the one with the menu bar); never a mirror/secondary
-        guard let screen = NSScreen.screens.first ?? NSScreen.main else { return }
+        // the screen the user is working on (where the pointer is), falling
+        // back to the primary display
+        let mouse = NSEvent.mouseLocation
+        let screen = NSScreen.screens.first(where: { NSMouseInRect(mouse, $0.frame, false) })
+            ?? NSScreen.screens.first
+            ?? NSScreen.main
+        guard let screen else { return }
         let frame = screen.frame
         let visible = screen.visibleFrame
-        // center on the full screen width (visibleFrame is inset by the Dock,
-        // which would shift the pill off-center when the Dock is on a side)
+        // dead-center under the notch: center of the FULL screen width
+        // (visibleFrame is inset by the Dock and would shift the pill sideways)
         let x = frame.midX - Self.pillWidth / 2
-        // sit just below the menu bar (visibleFrame.maxY is under it)
-        let y = visible.maxY - Self.pillHeight - 12
-        setFrame(NSRect(x: x, y: y, width: Self.pillWidth, height: Self.pillHeight),
-                 display: false)
+        // hug the menu bar: visibleFrame.maxY is its bottom edge
+        let y = visible.maxY - Self.pillHeight - 5
+        let rect = NSRect(x: x, y: y, width: Self.pillWidth, height: Self.pillHeight)
+        NSLog("Transcribe pill frame=%@ screen=%@", NSStringFromRect(rect), NSStringFromRect(frame))
+        setFrame(rect, display: false)
     }
 
     // MARK: - States
@@ -241,7 +235,7 @@ final class WaveformView: NSView {
         }
     }
 
-    override var intrinsicContentSize: NSSize { NSSize(width: 72, height: 16) }
+    override var intrinsicContentSize: NSSize { NSSize(width: 104, height: 24) }
 
     override func draw(_ dirtyRect: NSRect) {
         let barW: CGFloat = 2.2
