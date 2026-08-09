@@ -16,9 +16,11 @@ final class DictationPill: NSPanel {
     }
 
     private let label = NSTextField(labelWithString: "")
+    private let check = NSImageView()
     private let waveform = WaveformView()
     private let spinner = NSProgressIndicator()
     private let container = NSView()
+    private let resultStack = NSStackView()
 
     private static let pillWidth: CGFloat = 100
     private static let pillHeight: CGFloat = 34
@@ -79,8 +81,19 @@ final class DictationPill: NSPanel {
         label.translatesAutoresizingMaskIntoConstraints = false
         label.font = .systemFont(ofSize: 11, weight: .medium)
         label.textColor = .white
-        label.lineBreakMode = .byTruncatingTail
         label.alignment = .center
+
+        check.translatesAutoresizingMaskIntoConstraints = false
+        check.image = DictationPill.symbol("checkmark.circle.fill", tint: .systemGreen)
+        check.imageScaling = .scaleProportionallyDown
+
+        resultStack.translatesAutoresizingMaskIntoConstraints = false
+        resultStack.orientation = .horizontal
+        resultStack.alignment = .centerY
+        resultStack.spacing = 5
+        resultStack.addArrangedSubview(check)
+        resultStack.addArrangedSubview(label)
+        resultStack.isHidden = true
 
         waveform.translatesAutoresizingMaskIntoConstraints = false
         spinner.translatesAutoresizingMaskIntoConstraints = false
@@ -88,18 +101,23 @@ final class DictationPill: NSPanel {
         spinner.controlSize = .small
         spinner.isDisplayedWhenStopped = false
 
-        container.addSubview(label)
+        container.addSubview(resultStack)
         container.addSubview(waveform)
+        container.addSubview(spinner)
 
         NSLayoutConstraint.activate([
-            label.centerXAnchor.constraint(equalTo: container.centerXAnchor),
-            label.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-            label.widthAnchor.constraint(lessThanOrEqualToConstant: 160),
+            resultStack.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            resultStack.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            check.widthAnchor.constraint(equalToConstant: 15),
+            check.heightAnchor.constraint(equalToConstant: 15),
 
             waveform.centerXAnchor.constraint(equalTo: container.centerXAnchor),
             waveform.centerYAnchor.constraint(equalTo: container.centerYAnchor),
             waveform.widthAnchor.constraint(equalToConstant: 80),
             waveform.heightAnchor.constraint(equalToConstant: 20),
+
+            spinner.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            spinner.centerYAnchor.constraint(equalTo: container.centerYAnchor),
         ])
     }
 
@@ -132,31 +150,25 @@ final class DictationPill: NSPanel {
             positionBelowMenuBar()
             switch state {
             case .recording:
+                // pure waveform, nothing else — always centered
+                resultStack.isHidden = true
                 waveform.isHidden = false
-                label.isHidden = true
                 spinner.stopAnimation(nil)
-                spinner.removeFromSuperview()
                 appear(scale: 0.92)
             case .transcribing:
+                // symbol only (spinner), no text
+                resultStack.isHidden = true
                 waveform.isHidden = true
-                label.isHidden = false
-                label.stringValue = "Transcribing…"
-                container.addSubview(spinner)
-                spinner.translatesAutoresizingMaskIntoConstraints = false
-                NSLayoutConstraint.activate([
-                    spinner.trailingAnchor.constraint(equalTo: label.leadingAnchor, constant: -8),
-                    spinner.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-                ])
                 spinner.startAnimation(nil)
                 appear(scale: 1.0)
-            case .result(let text):
+            case .result:
+                // ✓ Transcribed — no truncated text preview
                 spinner.stopAnimation(nil)
-                spinner.removeFromSuperview()
                 waveform.isHidden = true
-                label.isHidden = false
-                label.stringValue = String(text.prefix(20)) + (text.count > 20 ? "…" : "")
+                resultStack.isHidden = false
+                label.stringValue = "Transcribed"
                 appear(scale: 1.0)
-                hide(after: 2.4)
+                hide(after: 1.8)
             case .hidden:
                 dismiss()
             }
@@ -165,6 +177,18 @@ final class DictationPill: NSPanel {
 
     func updateLevel(_ value: Float) {
         waveform.level = value
+    }
+
+    static func symbol(_ name: String, tint: NSColor) -> NSImage? {
+        let cfg = NSImage.SymbolConfiguration(pointSize: 12, weight: .semibold)
+        guard let img = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
+            .withSymbolConfiguration(cfg) else { return nil }
+        return NSImage(size: img.size, flipped: false) { rect in
+            tint.set()
+            rect.fill(using: .sourceAtop)
+            img.draw(in: rect)
+            return true
+        }
     }
 
     func hide(after delay: TimeInterval) {
@@ -196,7 +220,6 @@ final class DictationPill: NSPanel {
             orderOut(nil)
             container.layer?.setAffineTransform(.identity)
             spinner.stopAnimation(nil)
-            spinner.removeFromSuperview()
         })
     }
 }
@@ -245,13 +268,16 @@ final class WaveformView: NSView {
         var x = (bounds.width - totalW) / 2
         let env = CGFloat(displayLevel)
 
-        // envelope per bar, then one smoothing pass for a continuous silhouette
+        // symmetric envelope: the shape is even around the center at every
+        // instant (cos is symmetric), and only the overall amplitude breathes
+        // with sin(phase) — the wave can never look shifted left or right
         var heights = [CGFloat](repeating: 0, count: barCount)
         for i in 0..<barCount {
             let dist = CGFloat(abs(i - centerIndex)) / CGFloat(centerIndex)
             let taper = 1.0 - dist * dist * 0.85
-            let wave = 0.5 + 0.5 * CGFloat(sin(Double(phase) + Double(i) * 0.45))
-            heights[i] = maxH * taper * (0.06 + 0.94 * env * wave)
+            let breath = 0.5 + 0.5 * CGFloat(sin(Double(phase)))
+            let shape = CGFloat(cos(Double(i - centerIndex) * 0.45))
+            heights[i] = maxH * taper * (0.06 + 0.94 * env * breath * (0.35 + 0.65 * shape))
         }
         var smoothed = heights
         for i in 1..<(barCount - 1) {
