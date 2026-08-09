@@ -1,0 +1,5 @@
+Transcribe bundles no third-party code. It depends on the following open-source projects at runtime:
+
+- mlx-whisper (MIT) — https://github.com/ml-explore/mlx-examples — Apple Silicon Whisper inference via MLX
+- faster-whisper (MIT) — https://github.com/SYSTRAN/faster-whisper — fallback Whisper inference via CTranslate2
+- Whisper models are from OpenAI (MIT license on the model weights repo, https://github.com/openai/whisper) via mlx-community conversions.

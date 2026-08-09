@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+.pytest_cache/
+
+# Model / audio artifacts
+*.wav
+*.m4a
+*.caf
+!tests/fixtures/*.wav
+!tests/fixtures/*.m4a
+
+# Native app build output
+app/.build/
+app/dist/
+*.app/
+
+# macOS
+.DS_Store
