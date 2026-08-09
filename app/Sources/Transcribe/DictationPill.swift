@@ -18,7 +18,7 @@ final class DictationPill: NSPanel {
     private let label = NSTextField(labelWithString: "")
     private let check = NSImageView()
     private let waveform = WaveformView()
-    private let spinner = NSProgressIndicator()
+    private let spinnerView = NSImageView()
     private let container = NSView()
     private let resultStack = NSStackView()
 
@@ -79,7 +79,7 @@ final class DictationPill: NSPanel {
         ])
 
         label.translatesAutoresizingMaskIntoConstraints = false
-        label.font = .systemFont(ofSize: 11, weight: .medium)
+        label.font = .systemFont(ofSize: 10.5, weight: .medium)
         label.textColor = .white
         label.alignment = .center
 
@@ -90,35 +90,36 @@ final class DictationPill: NSPanel {
         resultStack.translatesAutoresizingMaskIntoConstraints = false
         resultStack.orientation = .horizontal
         resultStack.alignment = .centerY
-        resultStack.spacing = 5
+        resultStack.spacing = 4
         resultStack.addArrangedSubview(check)
         resultStack.addArrangedSubview(label)
         resultStack.isHidden = true
 
         waveform.translatesAutoresizingMaskIntoConstraints = false
-        spinner.translatesAutoresizingMaskIntoConstraints = false
-        spinner.style = .spinning
-        spinner.controlSize = .regular
-        spinner.isDisplayedWhenStopped = false
-        spinner.appearance = NSAppearance(named: .darkAqua)  // renders white on black
+        spinnerView.translatesAutoresizingMaskIntoConstraints = false
+        spinnerView.image = DictationPill.symbol("progress.indicator", tint: .white)
+        spinnerView.imageScaling = .scaleProportionallyDown
+        spinnerView.wantsLayer = true
 
         container.addSubview(resultStack)
         container.addSubview(waveform)
-        container.addSubview(spinner)
+        container.addSubview(spinnerView)
 
         NSLayoutConstraint.activate([
             resultStack.centerXAnchor.constraint(equalTo: container.centerXAnchor),
             resultStack.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-            check.widthAnchor.constraint(equalToConstant: 15),
-            check.heightAnchor.constraint(equalToConstant: 15),
+            check.widthAnchor.constraint(equalToConstant: 12),
+            check.heightAnchor.constraint(equalToConstant: 12),
 
             waveform.centerXAnchor.constraint(equalTo: container.centerXAnchor),
             waveform.centerYAnchor.constraint(equalTo: container.centerYAnchor),
             waveform.widthAnchor.constraint(equalToConstant: 80),
             waveform.heightAnchor.constraint(equalToConstant: 20),
 
-            spinner.centerXAnchor.constraint(equalTo: container.centerXAnchor),
-            spinner.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            spinnerView.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            spinnerView.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            spinnerView.widthAnchor.constraint(equalToConstant: 15),
+            spinnerView.heightAnchor.constraint(equalToConstant: 15),
         ])
     }
 
@@ -154,17 +155,17 @@ final class DictationPill: NSPanel {
                 // pure waveform, nothing else — always centered
                 resultStack.isHidden = true
                 waveform.isHidden = false
-                spinner.stopAnimation(nil)
+                stopSpinning()
                 appear(from: 0.95)
             case .transcribing:
-                // symbol only (spinner), no text
+                // symbol only (small white spinner), no text
                 resultStack.isHidden = true
                 waveform.isHidden = true
-                spinner.startAnimation(nil)
+                startSpinning()
                 appear(from: 1.0)
             case .result:
                 // ✓ Transcribed — no truncated text preview
-                spinner.stopAnimation(nil)
+                stopSpinning()
                 waveform.isHidden = true
                 resultStack.isHidden = false
                 label.stringValue = "Transcribed"
@@ -178,6 +179,21 @@ final class DictationPill: NSPanel {
 
     func updateLevel(_ value: Float) {
         waveform.level = value
+    }
+
+    private func startSpinning() {
+        spinnerView.isHidden = false
+        let spin = CABasicAnimation(keyPath: "transform.rotation")
+        spin.fromValue = 0
+        spin.toValue = 2 * Double.pi
+        spin.duration = 0.9
+        spin.repeatCount = .infinity
+        spinnerView.layer?.add(spin, forKey: "spin")
+    }
+
+    private func stopSpinning() {
+        spinnerView.isHidden = true
+        spinnerView.layer?.removeAnimation(forKey: "spin")
     }
 
     static func symbol(_ name: String, tint: NSColor) -> NSImage? {
@@ -224,7 +240,7 @@ final class DictationPill: NSPanel {
         }, completionHandler: { [self] in
             orderOut(nil)
             container.layer?.setAffineTransform(.identity)
-            spinner.stopAnimation(nil)
+            stopSpinning()
         })
     }
 }
