@@ -20,8 +20,8 @@ final class DictationPill: NSPanel {
     private let spinner = NSProgressIndicator()
     private let container = NSView()
 
-    private static let pillWidth: CGFloat = 204
-    private static let pillHeight: CGFloat = 48
+    private static let pillWidth: CGFloat = 150
+    private static let pillHeight: CGFloat = 36
 
     init() {
         super.init(contentRect: NSRect(x: 0, y: 0, width: Self.pillWidth, height: Self.pillHeight),
@@ -51,10 +51,11 @@ final class DictationPill: NSPanel {
             container.bottomAnchor.constraint(equalTo: contentView!.bottomAnchor),
         ])
 
-        // frosted-glass background with a dark tint
+        // frosted-glass background: blur what is behind the window (.behindWindow),
+        // dark tint on top, hairline border for definition
         let glass = NSVisualEffectView()
         glass.material = .hudWindow
-        glass.blendingMode = .withinWindow
+        glass.blendingMode = .behindWindow
         glass.state = .active
         glass.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(glass)
@@ -66,7 +67,7 @@ final class DictationPill: NSPanel {
         ])
         let tint = NSView()
         tint.wantsLayer = true
-        tint.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.55).cgColor
+        tint.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.38).cgColor
         tint.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(tint)
         NSLayoutConstraint.activate([
@@ -75,9 +76,20 @@ final class DictationPill: NSPanel {
             tint.topAnchor.constraint(equalTo: container.topAnchor),
             tint.bottomAnchor.constraint(equalTo: container.bottomAnchor),
         ])
+        let border = NSView()
+        border.wantsLayer = true
+        border.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.10).cgColor
+        border.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(border)
+        NSLayoutConstraint.activate([
+            border.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            border.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            border.topAnchor.constraint(equalTo: container.topAnchor),
+            border.heightAnchor.constraint(equalToConstant: 1),
+        ])
 
         label.translatesAutoresizingMaskIntoConstraints = false
-        label.font = .systemFont(ofSize: 12, weight: .medium)
+        label.font = .systemFont(ofSize: 11, weight: .medium)
         label.textColor = .white
         label.lineBreakMode = .byTruncatingTail
         label.alignment = .center
@@ -98,17 +110,22 @@ final class DictationPill: NSPanel {
 
             waveform.centerXAnchor.constraint(equalTo: container.centerXAnchor),
             waveform.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-            waveform.widthAnchor.constraint(equalToConstant: 104),
-            waveform.heightAnchor.constraint(equalToConstant: 24),
+            waveform.widthAnchor.constraint(equalToConstant: 72),
+            waveform.heightAnchor.constraint(equalToConstant: 16),
         ])
     }
 
     // MARK: - Placement
 
     private func positionBelowMenuBar() {
-        guard let screen = NSScreen.main else { return }
+        // primary display (the one with the menu bar); never a mirror/secondary
+        guard let screen = NSScreen.screens.first ?? NSScreen.main else { return }
+        let frame = screen.frame
         let visible = screen.visibleFrame
-        let x = visible.midX - Self.pillWidth / 2
+        // center on the full screen width (visibleFrame is inset by the Dock,
+        // which would shift the pill off-center when the Dock is on a side)
+        let x = frame.midX - Self.pillWidth / 2
+        // sit just below the menu bar (visibleFrame.maxY is under it)
         let y = visible.maxY - Self.pillHeight - 12
         setFrame(NSRect(x: x, y: y, width: Self.pillWidth, height: Self.pillHeight),
                  display: false)
@@ -224,7 +241,7 @@ final class WaveformView: NSView {
         }
     }
 
-    override var intrinsicContentSize: NSSize { NSSize(width: 104, height: 24) }
+    override var intrinsicContentSize: NSSize { NSSize(width: 72, height: 16) }
 
     override func draw(_ dirtyRect: NSRect) {
         let barW: CGFloat = 2.2

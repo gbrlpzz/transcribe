@@ -11,6 +11,14 @@ Accessibility permission needed for pasting.
 
 ## Common issues
 
+### Permissions (microphone / accessibility) keep re-asking
+macOS ties permissions to the app's code signature. If the app was built with
+an ad-hoc signature (`codesign -s -`), every rebuild changes the signature and
+macOS treats it as a new app. `app/build.sh` signs with a stable identity when
+one exists (a self-signed "Transcribe Code Signing" cert or an Apple
+Development cert), so permissions persist. Rebuild with `make app` /
+`make app-install` and grant each permission once — it sticks after that.
+
 ### "no transcription backend installed"
 Install a backend into the environment where `transcribe` is installed:
 
