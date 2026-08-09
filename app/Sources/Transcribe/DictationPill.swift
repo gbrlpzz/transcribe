@@ -18,7 +18,7 @@ final class DictationPill: NSPanel {
     private let label = NSTextField(labelWithString: "")
     private let check = NSImageView()
     private let waveform = WaveformView()
-    private let spinnerView = NSImageView()
+    private let dotsView = DotsView()
     private let container = NSView()
     private let resultStack = NSStackView()
 
@@ -96,14 +96,11 @@ final class DictationPill: NSPanel {
         resultStack.isHidden = true
 
         waveform.translatesAutoresizingMaskIntoConstraints = false
-        spinnerView.translatesAutoresizingMaskIntoConstraints = false
-        spinnerView.image = DictationPill.symbol("progress.indicator", tint: .white)
-        spinnerView.imageScaling = .scaleProportionallyDown
-        spinnerView.wantsLayer = true
+        dotsView.translatesAutoresizingMaskIntoConstraints = false
 
         container.addSubview(resultStack)
         container.addSubview(waveform)
-        container.addSubview(spinnerView)
+        container.addSubview(dotsView)
 
         NSLayoutConstraint.activate([
             resultStack.centerXAnchor.constraint(equalTo: container.centerXAnchor),
@@ -116,10 +113,10 @@ final class DictationPill: NSPanel {
             waveform.widthAnchor.constraint(equalToConstant: 80),
             waveform.heightAnchor.constraint(equalToConstant: 20),
 
-            spinnerView.centerXAnchor.constraint(equalTo: container.centerXAnchor),
-            spinnerView.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-            spinnerView.widthAnchor.constraint(equalToConstant: 15),
-            spinnerView.heightAnchor.constraint(equalToConstant: 15),
+            dotsView.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            dotsView.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            dotsView.widthAnchor.constraint(equalToConstant: 29),
+            dotsView.heightAnchor.constraint(equalToConstant: 8),
         ])
     }
 
@@ -155,17 +152,17 @@ final class DictationPill: NSPanel {
                 // pure waveform, nothing else — always centered
                 resultStack.isHidden = true
                 waveform.isHidden = false
-                stopSpinning()
+                stopDots()
                 appear(from: 0.95)
             case .transcribing:
-                // symbol only (small white spinner), no text
+                // minimal pulsing dots, no text
                 resultStack.isHidden = true
                 waveform.isHidden = true
-                startSpinning()
+                startDots()
                 appear(from: 1.0)
             case .result:
                 // ✓ Transcribed — no truncated text preview
-                stopSpinning()
+                stopDots()
                 waveform.isHidden = true
                 resultStack.isHidden = false
                 label.stringValue = "Transcribed"
@@ -181,19 +178,14 @@ final class DictationPill: NSPanel {
         waveform.level = value
     }
 
-    private func startSpinning() {
-        spinnerView.isHidden = false
-        let spin = CABasicAnimation(keyPath: "transform.rotation")
-        spin.fromValue = 0
-        spin.toValue = 2 * Double.pi
-        spin.duration = 0.9
-        spin.repeatCount = .infinity
-        spinnerView.layer?.add(spin, forKey: "spin")
+    private func startDots() {
+        dotsView.isHidden = false
+        dotsView.start()
     }
 
-    private func stopSpinning() {
-        spinnerView.isHidden = true
-        spinnerView.layer?.removeAnimation(forKey: "spin")
+    private func stopDots() {
+        dotsView.isHidden = true
+        dotsView.stop()
     }
 
     static func symbol(_ name: String, tint: NSColor) -> NSImage? {
@@ -240,7 +232,7 @@ final class DictationPill: NSPanel {
         }, completionHandler: { [self] in
             orderOut(nil)
             container.layer?.setAffineTransform(.identity)
-            stopSpinning()
+            stopDots()
         })
     }
 }
@@ -313,6 +305,70 @@ final class WaveformView: NSView {
                               width: barW, height: max(smoothed[i], 2))
             NSBezierPath(roundedRect: rect, xRadius: barW / 2, yRadius: barW / 2).fill()
             x += barW + gap
+        }
+    }
+}
+
+
+/// Minimal processing indicator: three small white dots pulsing in sequence —
+/// the standard typing/processing pattern (iMessage-style). No rotation.
+final class DotsView: NSView {
+    private var dotLayers: [CALayer] = []
+    private let dotCount = 3
+    private let diameter: CGFloat = 5
+    private let gap: CGFloat = 6
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        makeDots()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        wantsLayer = true
+        makeDots()
+    }
+
+    private func makeDots() {
+        for _ in 0..<dotCount {
+            let dot = CALayer()
+            dot.backgroundColor = NSColor.white.cgColor
+            dot.opacity = 0.25
+            layer?.addSublayer(dot)
+            dotLayers.append(dot)
+        }
+    }
+
+    override func layout() {
+        super.layout()
+        let total = CGFloat(dotCount) * diameter + CGFloat(dotCount - 1) * gap
+        for (i, dot) in dotLayers.enumerated() {
+            dot.cornerRadius = diameter / 2
+            dot.frame = CGRect(x: (bounds.width - total) / 2 + CGFloat(i) * (diameter + gap),
+                               y: (bounds.height - diameter) / 2,
+                               width: diameter, height: diameter)
+        }
+    }
+
+    func start() {
+        for (i, dot) in dotLayers.enumerated() {
+            if dot.animation(forKey: "pulse") != nil { continue }
+            let pulse = CABasicAnimation(keyPath: "opacity")
+            pulse.fromValue = 0.25
+            pulse.toValue = 1.0
+            pulse.duration = 0.7
+            pulse.autoreverses = true
+            pulse.repeatCount = .infinity
+            pulse.beginTime = CACurrentMediaTime() + Double(i) * 0.23
+            dot.add(pulse, forKey: "pulse")
+        }
+    }
+
+    func stop() {
+        for dot in dotLayers {
+            dot.removeAnimation(forKey: "pulse")
+            dot.opacity = 0.25
         }
     }
 }
