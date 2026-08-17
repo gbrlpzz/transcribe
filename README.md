@@ -28,6 +28,30 @@
 
 ---
 
+## System Requirements
+
+| Component | Minimum | Recommended |
+|---|---|---|
+| **Mac Model** | Apple Silicon (M1+) or Intel Mac (x86_64) | Apple Silicon (M1/M2/M3/M4, Pro, Max, Ultra) |
+| **Unified Memory / RAM** | 8 GB | 16 GB or more |
+| **Operating System** | macOS 14.0+ (Sonoma or Sequoia) | macOS 14.0+ |
+| **Free Storage** | ~3 GB (for engine + default model weights) | 5 GB+ |
+| **Tools** | [Homebrew](https://brew.sh), [uv](https://docs.astral.sh/uv/), `ffmpeg` | Homebrew, `uv`, `ffmpeg` |
+
+### Model Memory & Resource Guide
+
+Whisper stays resident in memory so dictation responds in 1–2 seconds. Choose a model that fits your available RAM:
+
+| Model Alias | Disk Size | Active RAM | Processing Speed (MLX) | Recommended Machine |
+|---|---|---|---|---|
+| `small` | ~470 MB | ~1.0 GB | ~15× real-time | 8 GB RAM machines under heavy multitasking |
+| `medium` | ~1.5 GB | ~2.0 GB | ~10× real-time | 8 GB or 16 GB machines |
+| `turbo` | ~800 MB | ~1.5 GB | ~12× real-time | English-only fast transcription |
+| `large-v3-turbo` *(default)* | ~1.6 GB | ~2.2 GB | ~8× real-time | 8 GB or 16 GB+ machines (best overall) |
+| `large-v3` | ~3.0 GB | ~4.5 GB | ~3× real-time | 16 GB+ machines (maximum accuracy) |
+
+---
+
 ## Installation
 
 Requires macOS 14+ on an Apple Silicon Mac (or Intel Mac using faster-whisper fallback), and [Homebrew](https://brew.sh).

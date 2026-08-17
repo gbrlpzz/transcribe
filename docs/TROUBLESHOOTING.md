@@ -81,7 +81,17 @@ To disable all smart text replacements:
 transcribe config set smart_text false
 ```
 
-### 8. File Locations
+### 8. High Memory Pressure on 8 GB Macs
+If your Mac is under high memory pressure from heavy applications (e.g. IDEs, Docker, browser tabs) and dictation slows down, switch to a lighter model:
+
+```bash
+# Switch to medium (~1.5 GB RAM) or small (~1.0 GB RAM)
+transcribe config set model medium
+# or
+transcribe config set model small
+```
+
+### 9. File Locations
 - **Configuration**: `~/Library/Application Support/transcribe/config.json`
 - **Session Recordings & Transcripts**: `~/Library/Application Support/transcribe/sessions/`
 - **Hugging Face Model Cache**: `~/.cache/huggingface/`

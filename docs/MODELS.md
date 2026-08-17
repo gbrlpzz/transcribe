@@ -48,3 +48,28 @@ transcribe config set language it    # Italian
 transcribe config set language en    # English
 transcribe config set language auto  # Auto-detect (default)
 ```
+---
+
+## System Requirements & Resource Planning
+
+Whisper runs entirely in-memory on your machine. On Apple Silicon, MLX shares Unified Memory between CPU and GPU cores with zero copy overhead.
+
+### Hardware & RAM Recommendations
+
+| Machine Configuration | Recommended Model | Expected Latency |
+|---|---|---|
+| **Apple Silicon (8 GB Unified Memory)** | `large-v3-turbo` or `medium` | ~1.0 – 1.8 s per utterance |
+| **Apple Silicon (16 GB – 128 GB)** | `large-v3-turbo` or `large-v3` | ~0.8 – 1.5 s per utterance |
+| **Intel Mac (8 GB RAM)** | `small` or `medium` (via `faster-whisper`) | ~2.5 – 4.0 s per utterance |
+| **Intel Mac (16 GB+ RAM)** | `large-v3-turbo` (via `faster-whisper`) | ~2.0 – 3.5 s per utterance |
+
+### Disk Storage
+
+- Engine and Python environment: ~200 MB
+- Hugging Face cache directory (`~/.cache/huggingface/hub/`):
+  - `large-v3-turbo`: ~1.6 GB
+  - `large-v3`: ~3.0 GB
+  - `medium`: ~1.5 GB
+  - `small`: ~470 MB
+  - `turbo`: ~800 MB
+- Ensure your primary disk has at least **3 GB free** before initial setup.
