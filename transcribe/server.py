@@ -65,7 +65,21 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(404, {"error": "not found"})
 
     def do_POST(self):  # noqa: N802
-        if urlparse(self.path).path != "/transcribe":
+        parsed_path = urlparse(self.path).path
+        if parsed_path == "/reload":
+            with self.server.lock:
+                cfg = load()
+                self.server.transcriber = Transcriber(
+                    model=cfg.model, backend=cfg.backend, language=cfg.language)
+                try:
+                    self.server.transcriber.load()
+                    self._send(200, {"status": "reloaded",
+                                     "model": self.server.transcriber.model,
+                                     "backend": self.server.transcriber.backend})
+                except Exception as exc:  # noqa: BLE001
+                    self._send(500, {"error": f"model load failed: {exc}"})
+            return
+        if parsed_path != "/transcribe":
             self._send(404, {"error": "not found"})
             return
         try:

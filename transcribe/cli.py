@@ -233,6 +233,17 @@ def cmd_models(args, cfg: Config) -> int:
 
 
 def cmd_doctor(args, cfg: Config) -> int:
+    from transcribe.engine import detect_system_info
+    info = detect_system_info()
+
+    print("System Diagnostics & Recommendations")
+    print("────────────────────────────────────")
+    print(f"Hardware:            {info['hardware_desc']}")
+    print(f"Recommended Backend: {info['recommended_backend_pkg']}")
+    print(f"Recommended Model:   {info['recommended_model']} ({info['model_reason']})")
+    print(f"Active Model:        {cfg.model} (language: {cfg.language})")
+    print()
+
     ok = True
 
     def report(name, good, detail=""):
@@ -240,13 +251,17 @@ def cmd_doctor(args, cfg: Config) -> int:
         ok = ok and good
         print(f"{'✓' if good else '✗'} {name}{(' — ' + detail) if detail else ''}")
 
-    from prime_transcribe.audio import ffmpeg_path
+    from transcribe.audio import ffmpeg_path
     ff = ffmpeg_path()
     report("ffmpeg", bool(ff), ff or "install with `brew install ffmpeg`")
 
     backends = available_backends()
-    report("transcription backend", bool(backends),
-           ", ".join(backends) or "run `uv pip install mlx-whisper` (Apple Silicon) or `uv pip install faster-whisper`")
+    backend_good = bool(backends)
+    if not backends:
+        detail = f"Missing! Run: `{info['install_cmd']}`"
+    else:
+        detail = f"available: {', '.join(backends)}"
+    report("transcription backend", backend_good, detail)
 
     from transcribe.audio import find_input_device
     dev = find_input_device(cfg.device)

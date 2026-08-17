@@ -12,8 +12,10 @@ venv: ## create the virtualenv and install the package (editable) + dev deps
 	uv venv --python 3.11 .venv
 	uv pip install --python .venv -e ".[dev]"
 
-install: ## install engine + skill for the current user (recommended path)
-	uv tool install .
+BACKEND_FLAG ?= $(shell [ "$$(uname -s)" = "Darwin" ] && [ "$$(uname -m)" = "arm64" ] && echo "--with mlx-whisper" || echo "--with faster-whisper")
+
+install: ## install engine + skill for the current user (auto-detects hardware backend)
+	uv tool install $(BACKEND_FLAG) --force --reinstall .
 	@echo "→ installing Prime Agent skill…"
 	@bash scripts/install-skill.sh
 

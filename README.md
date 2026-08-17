@@ -59,7 +59,12 @@ Requires macOS 14+ on an Apple Silicon Mac (or Intel Mac using faster-whisper fa
 ```bash
 # 1. Install ffmpeg and the transcribe engine CLI
 brew install ffmpeg
-uv tool install --from git+https://github.com/gbrlpzz/transcribe transcribe
+
+# For Apple Silicon (M1/M2/M3/M4):
+uv tool install --from git+https://github.com/gbrlpzz/transcribe transcribe --with mlx-whisper
+
+# Or for Intel Macs / Linux:
+uv tool install --from git+https://github.com/gbrlpzz/transcribe transcribe --with faster-whisper
 
 # 2. Build and install the native menu-bar app
 git clone https://github.com/gbrlpzz/transcribe.git && cd transcribe

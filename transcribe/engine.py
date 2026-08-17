@@ -146,3 +146,60 @@ def transcribe(audio_path: str, *, model: str = DEFAULT_MODEL,
                verbose: bool = False) -> dict[str, Any]:
     """One-shot transcription (loads the model, transcribes, returns)."""
     return Transcriber(model=model, backend=backend, language=language)        .transcribe(audio_path, verbose=verbose)
+
+
+def detect_system_info() -> dict[str, Any]:
+    """Inspect the local machine and return hardware specs and tailored recommendations."""
+    import subprocess
+    sys_name = platform.system()
+    machine = platform.machine()
+    is_apple_silicon = sys_name == "Darwin" and machine == "arm64"
+
+    ram_gb = 0
+    cpu_brand = ""
+    if sys_name == "Darwin":
+        try:
+            mem_bytes = int(subprocess.check_output(["sysctl", "-n", "hw.memsize"], text=True).strip())
+            ram_gb = round(mem_bytes / (1024 ** 3))
+        except Exception:
+            pass
+        try:
+            cpu_brand = subprocess.check_output(["sysctl", "-n", "machdep.cpu.brand_string"], text=True).strip()
+        except Exception:
+            pass
+    elif sys_name == "Linux":
+        try:
+            mem_bytes = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
+            ram_gb = round(mem_bytes / (1024 ** 3))
+        except Exception:
+            pass
+
+    if is_apple_silicon:
+        hw_desc = f"Apple Silicon ({cpu_brand or 'M-series'}, {ram_gb} GB Unified Memory)" if ram_gb else f"Apple Silicon ({cpu_brand or 'M-series'})"
+        rec_backend = "mlx"
+        rec_backend_pkg = "mlx-whisper"
+        install_cmd = "uv tool install --from git+https://github.com/gbrlpzz/transcribe transcribe --with mlx-whisper"
+    else:
+        hw_desc = f"{sys_name} ({machine}, {ram_gb} GB RAM)" if ram_gb else f"{sys_name} ({machine})"
+        rec_backend = "faster"
+        rec_backend_pkg = "faster-whisper"
+        install_cmd = "uv tool install --from git+https://github.com/gbrlpzz/transcribe transcribe --with faster-whisper"
+
+    if ram_gb and ram_gb < 8:
+        rec_model = "small"
+        model_reason = f"Lightweight ({ram_gb} GB RAM available)"
+    else:
+        rec_model = "large-v3-turbo"
+        model_reason = "Standard recommended (multilingual, optimal speed/accuracy)"
+
+    return {
+        "is_apple_silicon": is_apple_silicon,
+        "hardware_desc": hw_desc,
+        "ram_gb": ram_gb,
+        "cpu_brand": cpu_brand,
+        "recommended_backend": rec_backend,
+        "recommended_backend_pkg": rec_backend_pkg,
+        "install_cmd": install_cmd,
+        "recommended_model": rec_model,
+        "model_reason": model_reason,
+    }
