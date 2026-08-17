@@ -26,7 +26,7 @@ Transcribe consists of a Python engine server, a native macOS Swift menu-bar app
 
 | Module | Location | Responsibility |
 |---|---|---|
-| `DictationPill` | `app/Sources/Transcribe/DictationPill.swift` | Floating obsidian frosted-glass HUD anchored under the screen notch. Renders 60 FPS live waveform, transcribing dots, and status checkmarks. |
+| `DictationPill` | `app/Sources/Transcribe/DictationPill.swift` | Floating obsidian frosted-glass HUD anchored under the screen notch. Renders 60 FPS live waveform, transcribing dots, status checkmarks, and interactive click-to-cancel motion. |
 | `Recorder` | `app/Sources/Transcribe/Recorder.swift` | Captures microphone input at 16 kHz mono 16-bit PCM WAV. Exposes live metering levels to the HUD. |
 | `EngineClient` | `app/Sources/Transcribe/EngineClient.swift` | Manages the background engine process lifecycle and sends HTTP requests to `127.0.0.1:8765`. |
 | `Paste` | `app/Sources/Transcribe/Paste.swift` | Copies text to pasteboard and synthesizes `⌘V` key events via macOS Accessibility. |

@@ -91,6 +91,9 @@ Launch **Transcribe** from Spotlight or `/Applications/Transcribe.app`. A microp
 
 - **Start/Stop Dictation**: Tap `⌃␣` (Control+Space). Speak, then tap `⌃␣` again. The transcribed text is pasted into your active text field.
 - **Notch HUD**: While recording, an obsidian glass capsule appears under your screen's notch or menu bar displaying a 60 FPS live audio waveform. It transitions to transcribing dots, displays a checkmark confirmation, and fades away automatically.
+- **Cancel / Discard Anytime**:
+  - **Press `Esc` (Escape)**: Intercepts and consumes the Escape key so your underlying terminal, IDE, or Prime Agent session is untouched. Discards audio immediately.
+  - **Click the HUD**: Click or tap the floating notch capsule to discard recording or cancel transcription instantly.
 - **Menu Bar Controls**: Click the menu-bar icon to switch **Model**, select **Language**, open **Transcribe File…**, or run **Clean Up Old Recordings**.
 
 ### 2. Command-Line Interface (CLI)

@@ -6,6 +6,7 @@ import ApplicationServices
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var hotKey: HotKey?
+    private var escapeHotKey: HotKey?
     private let recorder = Recorder()
     private let pill = DictationPill()
     private var engine: EngineClient!
@@ -14,6 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // state
     private enum DictationState { case idle, recording, transcribing }
     private var state: DictationState = .idle
+    private var isCancelled = false
     private var levelTimer: Timer?
 
     // menu handles
@@ -41,12 +43,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         engine = EngineClient(port: config.port)
         setupStatusItem()
         setupHotKey()
+        setupEscapeKey()
+        setupPill()
         engine.ensureEngineRunning { [weak self] ok in
             self?.refreshEngineState()
         }
         enginePollTimer = Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { [weak self] _ in
             self?.engine.health { ok in self?.engineUp = ok }
         }
+    }
+
+    private func setupPill() {
+        pill.onCancel = { [weak self] in
+            self?.cancelDictation()
+        }
+    }
+
+    private func setupEscapeKey() {
+        let esc = HotKey()
+        esc.onAction = { [weak self] action in
+            if action == .pressed {
+                self?.cancelDictation()
+            }
+        }
+        escapeHotKey = esc
     }
 
     private var engineUp = false {
@@ -238,7 +258,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         switch state {
         case .idle: startDictation()
         case .recording: stopDictation()
-        case .transcribing: break
+        case .transcribing: cancelDictation()
         }
     }
 
@@ -254,13 +274,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         default:
             break
         }
+        isCancelled = false
         state = .recording
         showRecording()
+        // Register Esc key to intercept and cancel while dictating
+        escapeHotKey?.register(modifiers: 0, keyCode: 53)
         do {
             _ = try recorder.start()
             NSSound(named: NSSound.Name("Pop"))?.play()
         } catch {
             state = .idle
+            escapeHotKey?.unregister()
             showIdleIcon()
             presentAlert(title: "Can't Record", message: error.localizedDescription)
         }
@@ -268,6 +292,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func stopDictation() {
         guard state == .recording, let url = recorder.currentURL else { return }
+        if isCancelled { return }
         state = .transcribing
         showTranscribing()
         recorder.stop()
@@ -275,11 +300,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         sendForTranscription(url: url)
     }
 
+    @objc private func cancelDictation() {
+        guard state != .idle else { return }
+        isCancelled = true
+        levelTimer?.invalidate()
+        levelTimer = nil
+        escapeHotKey?.unregister()
+
+        if recorder.isRecording {
+            if let url = recorder.currentURL {
+                try? FileManager.default.removeItem(at: url)
+            }
+            recorder.stop()
+        }
+
+        state = .idle
+        showIdleIcon()
+        pill.cancel()
+        NSSound(named: NSSound.Name("Blow"))?.play()
+    }
+
     private func sendForTranscription(url: URL) {
         engine.ensureEngineRunning { [weak self] ok in
             guard let self else { return }
             guard ok else {
                 self.state = .idle
+                self.escapeHotKey?.unregister()
                 self.showIdleIcon()
                 self.presentAlert(title: "Engine Not Found",
                                   message: "Install the engine first:\n\n    uv tool install transcribe\n\nThen restart Transcribe.")
@@ -287,7 +333,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             self.engineUp = true
             self.engine.transcribe(path: url, language: self.config.language) { result in
-                defer { self.state = .idle }
+                defer {
+                    self.state = .idle
+                    self.escapeHotKey?.unregister()
+                }
+                if self.isCancelled {
+                    try? FileManager.default.removeItem(at: url)
+                    return
+                }
                 switch result {
                 case .success(let tr):
                     let text = tr.text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -305,10 +358,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         self.flashResult(text)
                     }
                 case .failure(let error):
-                    self.showIdleIcon()
-                    self.pill.show(.error("Failed"))
-                    self.presentAlert(title: "Transcription Failed",
-                                      message: error.localizedDescription)
+                    if !self.isCancelled {
+                        self.showIdleIcon()
+                        self.pill.show(.error("Failed"))
+                        self.presentAlert(title: "Transcription Failed",
+                                          message: error.localizedDescription)
+                    }
                 }
                 try? FileManager.default.removeItem(at: url)
             }

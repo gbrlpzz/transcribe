@@ -5,6 +5,7 @@ import QuartzCore
 ///
 /// Regola-grade HUD crafted following Apple Human Interface Guidelines:
 /// - Liquid Dynamic Island morphology: fluid state transitions and continuous spring resizing.
+/// - Interactive Tap-to-Cancel: click or tap the HUD to discard dictation immediately.
 /// - Calmed monochrome glass: dark vibrant backdrop, obsidian core, and specular hairline rim.
 /// - Notch-aware positioning: dead-centered under the hardware notch or menu bar.
 /// - 60 FPS live waveform: multi-band sound-reactive capsule bars with peak attack/decay ballistics
@@ -17,17 +18,20 @@ final class DictationPill: NSPanel {
         case result(String)
         case empty
         case error(String)
+        case cancelled
         case hidden
     }
 
     private static let pillHeight: CGFloat = 34
     private static let minWidth: CGFloat = 132
 
+    var onCancel: (() -> Void)?
+
     private var currentState: PillState = .hidden
     private var dismissWorkItem: DispatchWorkItem?
 
     // UI hierarchy
-    private let container = NSView()
+    private let container = PillContainerView()
     private let visualEffect = NSVisualEffectView()
     private let darkOverlay = NSView()
     private let specularBorder = CALayer()
@@ -56,7 +60,8 @@ final class DictationPill: NSPanel {
         isReleasedWhenClosed = false
         level = .statusBar
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
-        ignoresMouseEvents = true
+        ignoresMouseEvents = false
+        acceptsMouseMovedEvents = true
         configureUI()
     }
 
@@ -65,12 +70,18 @@ final class DictationPill: NSPanel {
     private func configureUI() {
         guard let root = contentView else { return }
 
-        // Root container
+        // Root interactive container
         container.translatesAutoresizingMaskIntoConstraints = false
         container.wantsLayer = true
         container.layer?.cornerRadius = Self.pillHeight / 2
         container.layer?.cornerCurve = .continuous
         container.layer?.masksToBounds = false
+        container.onPillClick = { [weak self] in
+            guard let self else { return }
+            if self.currentState == .recording || self.currentState == .transcribing {
+                self.onCancel?()
+            }
+        }
         root.addSubview(container)
 
         NSLayoutConstraint.activate([
@@ -277,6 +288,7 @@ final class DictationPill: NSPanel {
 
             switch state {
             case .recording:
+                container.toolTip = "Click to cancel dictation (or press Esc)"
                 recordingDot.startPulsing()
                 dotsView.stop()
                 let width = max(Self.minWidth, recordingStack.fittingSize.width + 4)
@@ -286,6 +298,7 @@ final class DictationPill: NSPanel {
                            isNewAppearance: previousState == .hidden)
 
             case .transcribing:
+                container.toolTip = "Click to cancel transcription (or press Esc)"
                 recordingDot.stopPulsing()
                 dotsView.start()
                 let width = max(Self.minWidth, transcribingStack.fittingSize.width + 4)
@@ -295,6 +308,7 @@ final class DictationPill: NSPanel {
                            isNewAppearance: previousState == .hidden)
 
             case .result:
+                container.toolTip = nil
                 recordingDot.stopPulsing()
                 dotsView.stop()
                 statusIcon.image = Self.symbol("checkmark.circle.fill", tint: .systemGreen)
@@ -307,6 +321,7 @@ final class DictationPill: NSPanel {
                 scheduleDismiss(after: 1.6)
 
             case .empty:
+                container.toolTip = nil
                 recordingDot.stopPulsing()
                 dotsView.stop()
                 statusIcon.image = Self.symbol("mic.slash.fill", tint: NSColor(white: 0.65, alpha: 1.0))
@@ -319,6 +334,7 @@ final class DictationPill: NSPanel {
                 scheduleDismiss(after: 1.5)
 
             case .error(let msg):
+                container.toolTip = nil
                 recordingDot.stopPulsing()
                 dotsView.stop()
                 statusIcon.image = Self.symbol("exclamationmark.circle.fill", tint: .systemOrange)
@@ -330,6 +346,9 @@ final class DictationPill: NSPanel {
                            isNewAppearance: previousState == .hidden)
                 scheduleDismiss(after: 2.0)
 
+            case .cancelled:
+                cancelDismiss()
+
             case .hidden:
                 dismiss()
             }
@@ -338,6 +357,10 @@ final class DictationPill: NSPanel {
 
     func updateLevel(_ value: Float) {
         waveform.level = value
+    }
+
+    func cancel() {
+        show(.cancelled)
     }
 
     private func transition(toWidth width: CGFloat,
@@ -388,9 +411,29 @@ final class DictationPill: NSPanel {
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
+    private func cancelDismiss() {
+        recordingDot.stopPulsing()
+        dotsView.stop()
+        container.toolTip = nil
+
+        // Swift upward glide into the notch aperture
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = 0.20
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            animator().alphaValue = 0
+            container.layer?.setAffineTransform(CGAffineTransform(scaleX: 0.88, y: 0.88).translatedBy(x: 0, y: 8))
+        }, completionHandler: { [weak self] in
+            guard let self else { return }
+            self.orderOut(nil)
+            self.container.layer?.setAffineTransform(.identity)
+            self.currentState = .hidden
+        })
+    }
+
     private func dismiss() {
         recordingDot.stopPulsing()
         dotsView.stop()
+        container.toolTip = nil
 
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = 0.26
@@ -415,6 +458,52 @@ final class DictationPill: NSPanel {
             rect.fill(using: .sourceAtop)
             return true
         }
+    }
+}
+
+// MARK: - Interactive Pill Container View
+
+final class PillContainerView: NSView {
+    var onPillClick: (() -> Void)?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        wantsLayer = true
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas {
+            removeTrackingArea(area)
+        }
+        let area = NSTrackingArea(rect: bounds,
+                                  options: [.mouseEnteredAndExited, .activeAlways, .cursorUpdate],
+                                  owner: self,
+                                  userInfo: nil)
+        addTrackingArea(area)
+    }
+
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .pointingHand)
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        NSCursor.pointingHand.set()
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        // Play subtle click spring bounce
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.10
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            layer?.setAffineTransform(CGAffineTransform(scaleX: 0.95, y: 0.95))
+        }
+        onPillClick?()
     }
 }
 
