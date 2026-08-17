@@ -22,11 +22,11 @@ transcribe config set backend faster
 
 | Alias | MLX Repository | faster-whisper Repository | Size | Languages | Typical Speed |
 |---|---|---|---|---|---|
-| `large-v3-turbo` *(default)* | `mlx-community/whisper-large-v3-turbo` | `Systran/faster-whisper-large-v3-turbo` | ~1.6 GB | Multilingual | ~8× real-time |
-| `large-v3` | `mlx-community/whisper-large-v3` | `Systran/faster-whisper-large-v3` | ~3.0 GB | Multilingual | ~3× real-time |
+| `turbo` *(default)* | `mlx-community/whisper-turbo` | `Systran/faster-whisper-turbo` | ~1.6 GB | Default (fastest ~1.0s response) | ~12× real-time |
+| `large-v3-turbo` | `mlx-community/whisper-large-v3-turbo` | `Systran/faster-whisper-large-v3-turbo` | ~1.6 GB | Multilingual balance | ~8× real-time |
+| `large-v3` | `mlx-community/whisper-large-v3` | `Systran/faster-whisper-large-v3` | ~3.0 GB | Multilingual (max accuracy) | ~3× real-time |
 | `medium` | `mlx-community/whisper-medium` | `Systran/faster-whisper-medium` | ~1.5 GB | Multilingual | ~10× real-time |
-| `small` | `mlx-community/whisper-small` | `Systran/faster-whisper-small` | ~470 MB | Multilingual | ~15× real-time |
-| `turbo` | `mlx-community/whisper-turbo` | `Systran/faster-whisper-turbo` | ~800 MB | English only | ~12× real-time |
+| `small` | `mlx-community/whisper-small` | `Systran/faster-whisper-small` | ~470 MB | Multilingual (lightest) | ~15× real-time |
 
 ---
 

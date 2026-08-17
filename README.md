@@ -11,7 +11,7 @@
                ▼                                  ▼
         ┌───────────────────────────────────────────────┐
         │  Local Engine Server (127.0.0.1:8765)         │
-        │  Whisper large-v3-turbo · MLX (Apple Silicon) │
+        │  Whisper turbo (default) · MLX (Apple Silicon)│
         │  faster-whisper fallback · Smart text · TTL   │
         │  Automatic session cleanup (default: 48 h)    │
         └───────────────────────────────────────────────┘
@@ -20,7 +20,7 @@
 ## Features
 
 - **100% Private**: Whisper runs on-device. No cloud APIs, no telemetry, no subscriptions, no accounts.
-- **Accurate**: `whisper-large-v3-turbo` by default. Multilingual (English, Italian, and 90+ languages auto-detected).
+- **Instant & Accurate**: `whisper-turbo` by default — sub-second ~1.0s response latency with near-large-v3 accuracy.
 - **Apple HIG Notch HUD**: Floating obsidian frosted-glass capsule anchored dead-center under the MacBook notch or menu bar. Features a 60 FPS live waveform visualizer, pulsing recording beacon, undulating loading dots, and semantic status transitions.
 - **Tap-to-Toggle**: Tap `⌃␣` (Control+Space) once to start speaking, tap again to finish. No awkward press-and-hold.
 - **Prime Agent Skill**: Ships with an installable agent skill so Prime Agent can transcribe files and dictate locally without cloud fallbacks.

@@ -36,7 +36,7 @@ def default_home() -> str:
 @dataclass
 class Config:
     # --- transcription -----------------------------------------------------
-    model: str = "mlx-community/whisper-large-v3-turbo"  # alias accepted, see engine.MODELS
+    model: str = "mlx-community/whisper-turbo"  # alias accepted, see engine.MODELS
     language: str = "auto"          # "auto" | "en" | "it" | any ISO code
     backend: str = "auto"           # "auto" | "mlx" | "faster"
     # --- audio -------------------------------------------------------------

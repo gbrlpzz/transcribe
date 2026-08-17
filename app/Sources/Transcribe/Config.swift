@@ -3,7 +3,7 @@ import Foundation
 /// Mirrors `transcribe/config.py` so the app and the Python engine share
 /// one configuration file at ~/Library/Application Support/transcribe/config.json.
 struct AppConfig: Codable {
-    var model: String = "mlx-community/whisper-large-v3-turbo"
+    var model: String = "mlx-community/whisper-turbo"
     var language: String = "auto"
     var backend: String = "auto"
     var device: String = "auto"

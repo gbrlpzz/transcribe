@@ -24,11 +24,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var enginePollTimer: Timer?
 
     private let modelAliases: [(alias: String, repo: String, note: String)] = [
-        ("large-v3-turbo", "mlx-community/whisper-large-v3-turbo", "best balance"),
+        ("turbo", "mlx-community/whisper-turbo", "default — fastest (~1.0s)"),
+        ("large-v3-turbo", "mlx-community/whisper-large-v3-turbo", "multilingual balance"),
         ("large-v3", "mlx-community/whisper-large-v3", "maximum accuracy"),
         ("medium", "mlx-community/whisper-medium", "lighter"),
-        ("small", "mlx-community/whisper-small", "lightest multilingual"),
-        ("turbo", "mlx-community/whisper-turbo", "English only — fastest"),
+        ("small", "mlx-community/whisper-small", "lightest footprint"),
     ]
     private let languages: [(id: String, label: String)] = [
         ("auto", "Auto"), ("en", "English"), ("it", "Italiano"),

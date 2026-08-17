@@ -57,7 +57,7 @@ transcribe app build       # build the native menu-bar app
 
 ## Decision rules
 - Default language is `auto` (detects English/Italian/multilingual).
-- Default model is `mlx-community/whisper-large-v3-turbo`; use `large-v3` when
+- Default model is `mlx-community/whisper-turbo` (fastest ~1.0s); use `large-v3` when
   the user asks for maximum accuracy and doesn't care about speed.
 - Never upload audio anywhere: this tool is local-first by design.
 - If the engine/backend is missing, run `transcribe doctor` and install the

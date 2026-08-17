@@ -23,6 +23,11 @@ os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
 
 # alias -> (mlx repo, faster-whisper repo, languages)
 MODELS: dict[str, dict[str, str]] = {
+    "turbo": {
+        "mlx": "mlx-community/whisper-turbo",
+        "faster": "Systran/faster-whisper-turbo",
+        "languages": "default — fastest (~1.0s latency)",
+    },
     "large-v3-turbo": {
         "mlx": "mlx-community/whisper-large-v3-turbo",
         "faster": "Systran/faster-whisper-large-v3-turbo",
@@ -43,14 +48,9 @@ MODELS: dict[str, dict[str, str]] = {
         "faster": "Systran/faster-whisper-small",
         "languages": "multilingual",
     },
-    "turbo": {
-        "mlx": "mlx-community/whisper-turbo",
-        "faster": "Systran/faster-whisper-turbo",
-        "languages": "English only (fastest)",
-    },
 }
 
-DEFAULT_MODEL = "mlx-community/whisper-large-v3-turbo"
+DEFAULT_MODEL = "mlx-community/whisper-turbo"
 
 
 def resolve_model(model: str, backend: str) -> str:
@@ -189,8 +189,8 @@ def detect_system_info() -> dict[str, Any]:
         rec_model = "small"
         model_reason = f"Lightweight ({ram_gb} GB RAM available)"
     else:
-        rec_model = "large-v3-turbo"
-        model_reason = "Standard recommended (multilingual, optimal speed/accuracy)"
+        rec_model = "turbo"
+        model_reason = "Default (fastest ~1.0s response, near-large-v3 accuracy)"
 
     return {
         "is_apple_silicon": is_apple_silicon,

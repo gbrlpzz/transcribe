@@ -6,7 +6,7 @@ Transcribe consists of a Python engine server, a native macOS Swift menu-bar app
 ┌───────────────────────────┐     WAV (16 kHz mono)     ┌───────────────────────────┐
 │  Menu-bar App (Swift)     │ ────────────────────────▶ │  Engine Server (Python)   │
 │  • Global hotkey          │     POST /transcribe      │  • 127.0.0.1:8765         │
-│  • Notch HUD pill         │ ◀──────────────────────── │  • Whisper large-v3-turbo │
+│  • Notch HUD pill         │ ◀──────────────────────── │  • Whisper turbo (default)│
 │  • Paste / Clipboard      │     {"text": "..."}       │  • MLX / faster-whisper   │
 └───────────────────────────┘                           └─────────────┬─────────────┘
                                                                       │
