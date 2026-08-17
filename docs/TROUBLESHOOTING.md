@@ -1,68 +1,87 @@
 # Troubleshooting
 
-## `transcribe doctor` is your first step
+## Quick Diagnostic: `transcribe doctor`
+
+Run the built-in diagnostic tool first:
 
 ```bash
 transcribe doctor
 ```
 
-It checks ffmpeg, the transcription backend, the microphone device, and the
-Accessibility permission needed for pasting.
+It validates:
+- `ffmpeg` binary installation and path.
+- Available speech recognition backends (`mlx-whisper` / `faster-whisper`).
+- Working microphone hardware and permissions.
+- macOS Accessibility trust for auto-pasting.
 
-## Common issues
+---
 
-### Permissions (microphone / accessibility) keep re-asking
-macOS ties permissions to the app's code signature. If the app was built with
-an ad-hoc signature (`codesign -s -`), every rebuild changes the signature and
-macOS treats it as a new app. `app/build.sh` signs with a stable identity when
-one exists (a self-signed "Transcribe Code Signing" cert or an Apple
-Development cert), so permissions persist. Rebuild with `make app` /
-`make app-install` and grant each permission once — it sticks after that.
+## Common Issues and Solutions
 
-### "no transcription backend installed"
-Install a backend into the environment where `transcribe` is installed:
+### 1. Permissions Keep Resetting on App Launch
+macOS binds Microphone and Accessibility permissions to the app's code signature. If the app is compiled with ad-hoc signing (`codesign -s -`), every rebuild changes the signature hash, causing macOS to prompt again.
+
+**Fix**: Always build with `make app` or `make app-install`. The build script automatically uses a stable local signing certificate if present. Grant each permission once in System Settings.
+
+### 2. "No transcription backend installed"
+Install the backend into the Python environment:
 
 ```bash
-uv tool install --from git+https://github.com/gbrlpzz/transcribe transcribe     --with mlx-whisper            # Apple Silicon
-# or
-uv tool install --from git+https://github.com/gbrlpzz/transcribe transcribe     --with faster-whisper         # Intel Mac / Linux
+# Apple Silicon (M1/M2/M3/M4)
+uv tool install --from git+https://github.com/gbrlpzz/transcribe transcribe --with mlx-whisper
+
+# Intel Macs or Linux
+uv tool install --from git+https://github.com/gbrlpzz/transcribe transcribe --with faster-whisper
 ```
 
-### Pasting does nothing
-Pasting sends a synthetic Cmd+V, which macOS restricts. Grant **Accessibility**
-to your terminal (CLI) or to Transcribe (app):
-System Settings → Privacy & Security → Accessibility.
+### 3. Text Is Copied but Not Pasted into Apps
+Auto-pasting synthesizes a `⌘V` keypress, which requires macOS Accessibility authorization.
 
-Workaround: `transcribe config set paste false` — text is then copied to the
-clipboard instead of pasted.
+**Fix**:
+1. Open **System Settings** → **Privacy & Security** → **Accessibility**.
+2. Enable **Transcribe** (for the menu-bar app) and your terminal (for the CLI).
+3. If you prefer manual pasting only, disable auto-paste:
+   ```bash
+   transcribe config set paste false
+   ```
 
-### The menu-bar app says "Engine not found"
-The app looks for the `transcribe` binary in `/opt/homebrew/bin`,
-`/usr/local/bin`, `~/.local/bin`, and `PATH`. Install it with
-`uv tool install transcribe` (after `uv tool install --from …`, above).
+### 4. Menu-Bar App Shows "Engine: Not Running"
+The Swift app searches for the `transcribe` CLI binary in `/opt/homebrew/bin`, `/usr/local/bin`, `~/.local/bin`, and your active `PATH`.
 
-### First dictation is slow / downloads for minutes
-The first run downloads the model (~1.6 GB for `large-v3-turbo`). Subsequent
-dictations are warm and fast. Pre-download any model ahead of time with:
+**Fix**:
+Ensure `transcribe` is installed globally:
+```bash
+uv tool install --from git+https://github.com/gbrlpzz/transcribe transcribe
+```
+Then click **Engine: Not Running** in the menu-bar app to restart it.
 
+### 5. First Dictation Takes a Long Time
+The first dictation downloads the Whisper model weights (~1.6 GB for `large-v3-turbo`) to `~/.cache/huggingface/`. Subsequent dictations run offline and respond in ~1–2 seconds.
+
+You can pre-download model weights ahead of time:
 ```bash
 huggingface-cli download mlx-community/whisper-large-v3-turbo
 ```
 
-### Microphone permission was denied
-System Settings → Privacy & Security → Microphone → enable Transcribe (app) or
-your terminal (CLI), then restart the recording.
+### 6. "Nothing Heard" HUD Warning
+If the HUD shows "Nothing Heard" or the recording is empty:
+- Speak closer to your microphone.
+- Check input levels in **System Settings** → **Sound** → **Input**.
+- If multiple microphones are connected, specify your preferred device index:
+  ```bash
+  ffmpeg -f avfoundation -list_devices true -i ""
+  transcribe config set device 1
+  ```
 
-### "Nothing Heard"
-Speak closer to the mic, check the input device in System Settings → Sound →
-Input, or set a specific device: `transcribe config set device 1` (see
-`ffmpeg -f avfoundation -list_devices true -i ""`).
+### 7. Smart Text Replaces Words You Spoke Literally
+Smart text replaces spoken punctuation keywords like "comma", "period", "new line". It uses whole-word boundary matching so normal words ("the period of time") remain untouched.
 
-### Smart text replaces words you meant literally
-Smart text only rewrites whole-word tokens ("comma", "period", "new line",
-…). If it still misfires for your use case:
-`transcribe config set smart_text false`.
+To disable all smart text replacements:
+```bash
+transcribe config set smart_text false
+```
 
-### Where is everything stored?
-`~/Library/Application Support/transcribe/` — config, sessions (audio +
-transcripts, wiped after 48 h), and model cache under `~/.cache/huggingface`.
+### 8. File Locations
+- **Configuration**: `~/Library/Application Support/transcribe/config.json`
+- **Session Recordings & Transcripts**: `~/Library/Application Support/transcribe/sessions/`
+- **Hugging Face Model Cache**: `~/.cache/huggingface/`
