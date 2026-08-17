@@ -1,173 +1,335 @@
 import AppKit
 import QuartzCore
 
-/// Floating "audio pill" below the menu bar / notch while dictating.
+/// Floating "audio pill" anchored below the menu bar / notch while dictating.
 ///
-/// Premium, HIG-minded transient indicator: a frosted-glass black capsule with
-/// a soft shadow, a smooth live waveform while recording, spinner + label
-/// while transcribing, text preview when done. Slow, gentle animations: a
-/// subtle scale pop on appear and a calm fade on dismiss.
+/// Regola-grade HUD crafted following Apple Human Interface Guidelines:
+/// - Liquid Dynamic Island morphology: fluid state transitions and continuous spring resizing.
+/// - Calmed monochrome glass: dark vibrant backdrop, obsidian core, and specular hairline rim.
+/// - Notch-aware positioning: dead-centered under the hardware notch or menu bar.
+/// - 60 FPS live waveform: multi-band sound-reactive capsule bars with peak attack/decay ballistics
+///   and subtle organic idle ripple when silent.
+/// - Crisp typography: SF Pro Medium text paired with semantic SF Symbols.
 final class DictationPill: NSPanel {
-    enum PillState {
+    enum PillState: Equatable {
         case recording
         case transcribing
         case result(String)
+        case empty
+        case error(String)
         case hidden
     }
 
-    private let label = NSTextField(labelWithString: "")
-    private let check = NSImageView()
-    private let waveform = WaveformView()
-    private let dotsView = DotsView()
-    private let container = NSView()
-    private let resultStack = NSStackView()
-
-    private static let pillWidth: CGFloat = 100
     private static let pillHeight: CGFloat = 34
+    private static let minWidth: CGFloat = 132
+
+    private var currentState: PillState = .hidden
+    private var dismissWorkItem: DispatchWorkItem?
+
+    // UI hierarchy
+    private let container = NSView()
+    private let visualEffect = NSVisualEffectView()
+    private let darkOverlay = NSView()
+    private let specularBorder = CALayer()
+    private let topHighlight = CAGradientLayer()
+
+    // State container stacks
+    private let recordingStack = NSStackView()
+    private let recordingDot = RecordingDotView()
+    private let waveform = WaveformView()
+
+    private let transcribingStack = NSStackView()
+    private let dotsView = DotsView()
+    private let transcribingLabel = NSTextField(labelWithString: "Transcribing…")
+
+    private let statusStack = NSStackView()
+    private let statusIcon = NSImageView()
+    private let statusLabel = NSTextField(labelWithString: "")
 
     init() {
-        super.init(contentRect: NSRect(x: 0, y: 0, width: Self.pillWidth, height: Self.pillHeight),
+        super.init(contentRect: NSRect(x: 0, y: 0, width: 140, height: Self.pillHeight),
                    styleMask: [.borderless, .nonactivatingPanel],
                    backing: .buffered, defer: false)
         isOpaque = false
         backgroundColor = .clear
-        hasShadow = true
+        hasShadow = false
         isReleasedWhenClosed = false
-        level = .floating
-        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        level = .statusBar
+        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
         ignoresMouseEvents = true
         configureUI()
     }
 
+    // MARK: - View Configuration
+
     private func configureUI() {
+        guard let root = contentView else { return }
+
+        // Root container
         container.translatesAutoresizingMaskIntoConstraints = false
         container.wantsLayer = true
         container.layer?.cornerRadius = Self.pillHeight / 2
         container.layer?.cornerCurve = .continuous
-        container.layer?.masksToBounds = true
-        contentView?.addSubview(container)
+        container.layer?.masksToBounds = false
+        root.addSubview(container)
+
         NSLayoutConstraint.activate([
-            container.leadingAnchor.constraint(equalTo: contentView!.leadingAnchor),
-            container.trailingAnchor.constraint(equalTo: contentView!.trailingAnchor),
-            container.topAnchor.constraint(equalTo: contentView!.topAnchor),
-            container.bottomAnchor.constraint(equalTo: contentView!.bottomAnchor),
+            container.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            container.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            container.topAnchor.constraint(equalTo: root.topAnchor),
+            container.bottomAnchor.constraint(equalTo: root.bottomAnchor),
         ])
 
-        // pitch-black capsule with a hairline border (per the HIG: simple,
-        // high-contrast transient indicator — no failed-transparency grays)
-        let black = NSView()
-        black.wantsLayer = true
-        black.layer?.backgroundColor = NSColor.black.cgColor
-        black.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(black)
+        // 1. Apple HIG Frosted Glass Material
+        visualEffect.translatesAutoresizingMaskIntoConstraints = false
+        visualEffect.material = .hudWindow
+        visualEffect.blendingMode = .behindWindow
+        visualEffect.state = .active
+        visualEffect.appearance = NSAppearance(named: .vibrantDark)
+        visualEffect.wantsLayer = true
+        visualEffect.layer?.cornerRadius = Self.pillHeight / 2
+        visualEffect.layer?.cornerCurve = .continuous
+        visualEffect.layer?.masksToBounds = true
+        container.addSubview(visualEffect)
+
         NSLayoutConstraint.activate([
-            black.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            black.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            black.topAnchor.constraint(equalTo: container.topAnchor),
-            black.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-        ])
-        let border = NSView()
-        border.wantsLayer = true
-        border.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.14).cgColor
-        border.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(border)
-        NSLayoutConstraint.activate([
-            border.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            border.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            border.topAnchor.constraint(equalTo: container.topAnchor),
-            border.heightAnchor.constraint(equalToConstant: 1),
+            visualEffect.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            visualEffect.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            visualEffect.topAnchor.constraint(equalTo: container.topAnchor),
+            visualEffect.bottomAnchor.constraint(equalTo: container.bottomAnchor),
         ])
 
-        label.translatesAutoresizingMaskIntoConstraints = false
-        label.font = .systemFont(ofSize: 10.5, weight: .medium)
-        label.textColor = .white
-        label.alignment = .center
+        // 2. Obsidian Core Overlay (pitch-black calm contrast over blur)
+        darkOverlay.translatesAutoresizingMaskIntoConstraints = false
+        darkOverlay.wantsLayer = true
+        darkOverlay.layer?.backgroundColor = NSColor(red: 0.04, green: 0.04, blue: 0.06, alpha: 0.90).cgColor
+        visualEffect.addSubview(darkOverlay)
 
-        check.translatesAutoresizingMaskIntoConstraints = false
-        check.image = DictationPill.symbol("checkmark.circle.fill", tint: .systemGreen)
-        check.imageScaling = .scaleProportionallyDown
+        NSLayoutConstraint.activate([
+            darkOverlay.leadingAnchor.constraint(equalTo: visualEffect.leadingAnchor),
+            darkOverlay.trailingAnchor.constraint(equalTo: visualEffect.trailingAnchor),
+            darkOverlay.topAnchor.constraint(equalTo: visualEffect.topAnchor),
+            darkOverlay.bottomAnchor.constraint(equalTo: visualEffect.bottomAnchor),
+        ])
 
-        resultStack.translatesAutoresizingMaskIntoConstraints = false
-        resultStack.orientation = .horizontal
-        resultStack.alignment = .centerY
-        resultStack.spacing = 4
-        resultStack.addArrangedSubview(check)
-        resultStack.addArrangedSubview(label)
-        resultStack.isHidden = true
+        // 3. Specular Hairline Rim Border
+        specularBorder.borderColor = NSColor(white: 1.0, alpha: 0.15).cgColor
+        specularBorder.borderWidth = 0.5
+        specularBorder.cornerRadius = Self.pillHeight / 2
+        specularBorder.cornerCurve = .continuous
+        container.layer?.addSublayer(specularBorder)
 
+        // 4. Subtle Top Specular Edge Highlight
+        topHighlight.colors = [
+            NSColor(white: 1.0, alpha: 0.20).cgColor,
+            NSColor(white: 1.0, alpha: 0.0).cgColor,
+        ]
+        topHighlight.startPoint = CGPoint(x: 0.5, y: 1.0)
+        topHighlight.endPoint = CGPoint(x: 0.5, y: 0.0)
+        topHighlight.cornerRadius = Self.pillHeight / 2
+        topHighlight.cornerCurve = .continuous
+        visualEffect.layer?.addSublayer(topHighlight)
+
+        // 5. Shadow Depth
+        container.layer?.shadowColor = NSColor.black.cgColor
+        container.layer?.shadowOpacity = 0.45
+        container.layer?.shadowOffset = CGSize(width: 0, height: -4)
+        container.layer?.shadowRadius = 16
+
+        configureRecordingStack()
+        configureTranscribingStack()
+        configureStatusStack()
+    }
+
+    private func configureRecordingStack() {
+        recordingStack.translatesAutoresizingMaskIntoConstraints = false
+        recordingStack.wantsLayer = true
+        recordingStack.orientation = .horizontal
+        recordingStack.alignment = .centerY
+        recordingStack.spacing = 10
+        recordingStack.edgeInsets = NSEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
+        container.addSubview(recordingStack)
+
+        recordingDot.translatesAutoresizingMaskIntoConstraints = false
         waveform.translatesAutoresizingMaskIntoConstraints = false
-        dotsView.translatesAutoresizingMaskIntoConstraints = false
 
-        container.addSubview(resultStack)
-        container.addSubview(waveform)
-        container.addSubview(dotsView)
+        recordingStack.addArrangedSubview(recordingDot)
+        recordingStack.addArrangedSubview(waveform)
 
         NSLayoutConstraint.activate([
-            resultStack.centerXAnchor.constraint(equalTo: container.centerXAnchor),
-            resultStack.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-            check.widthAnchor.constraint(equalToConstant: 12),
-            check.heightAnchor.constraint(equalToConstant: 12),
+            recordingStack.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            recordingStack.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            recordingStack.heightAnchor.constraint(equalToConstant: Self.pillHeight),
 
-            waveform.centerXAnchor.constraint(equalTo: container.centerXAnchor),
-            waveform.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-            waveform.widthAnchor.constraint(equalToConstant: 80),
+            recordingDot.widthAnchor.constraint(equalToConstant: 8),
+            recordingDot.heightAnchor.constraint(equalToConstant: 8),
+
+            waveform.widthAnchor.constraint(equalToConstant: 82),
             waveform.heightAnchor.constraint(equalToConstant: 20),
+        ])
+    }
 
-            dotsView.centerXAnchor.constraint(equalTo: container.centerXAnchor),
-            dotsView.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-            dotsView.widthAnchor.constraint(equalToConstant: 29),
+    private func configureTranscribingStack() {
+        transcribingStack.translatesAutoresizingMaskIntoConstraints = false
+        transcribingStack.wantsLayer = true
+        transcribingStack.orientation = .horizontal
+        transcribingStack.alignment = .centerY
+        transcribingStack.spacing = 8
+        transcribingStack.edgeInsets = NSEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
+        transcribingStack.alphaValue = 0
+        container.addSubview(transcribingStack)
+
+        dotsView.translatesAutoresizingMaskIntoConstraints = false
+        transcribingLabel.translatesAutoresizingMaskIntoConstraints = false
+        transcribingLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        transcribingLabel.textColor = NSColor(white: 0.90, alpha: 1.0)
+        transcribingLabel.alignment = .left
+
+        transcribingStack.addArrangedSubview(dotsView)
+        transcribingStack.addArrangedSubview(transcribingLabel)
+
+        NSLayoutConstraint.activate([
+            transcribingStack.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            transcribingStack.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            transcribingStack.heightAnchor.constraint(equalToConstant: Self.pillHeight),
+
+            dotsView.widthAnchor.constraint(equalToConstant: 24),
             dotsView.heightAnchor.constraint(equalToConstant: 8),
         ])
     }
 
-    // MARK: - Placement
+    private func configureStatusStack() {
+        statusStack.translatesAutoresizingMaskIntoConstraints = false
+        statusStack.wantsLayer = true
+        statusStack.orientation = .horizontal
+        statusStack.alignment = .centerY
+        statusStack.spacing = 6
+        statusStack.edgeInsets = NSEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
+        statusStack.alphaValue = 0
+        container.addSubview(statusStack)
 
-    private func positionBelowMenuBar() {
-        // the screen the user is working on (where the pointer is), falling
-        // back to the primary display
-        let mouse = NSEvent.mouseLocation
-        let screen = NSScreen.screens.first(where: { NSMouseInRect(mouse, $0.frame, false) })
-            ?? NSScreen.screens.first
-            ?? NSScreen.main
-        guard let screen else { return }
-        let frame = screen.frame
-        let visible = screen.visibleFrame
-        // dead-center under the notch: center of the FULL screen width
-        // (visibleFrame is inset by the Dock and would shift the pill sideways)
-        let x = frame.midX - Self.pillWidth / 2
-        // hug the menu bar: visibleFrame.maxY is its bottom edge
-        let y = visible.maxY - Self.pillHeight - 5
-        let rect = NSRect(x: x, y: y, width: Self.pillWidth, height: Self.pillHeight)
-        NSLog("Transcribe pill frame=%@ screen=%@", NSStringFromRect(rect), NSStringFromRect(frame))
-        setFrame(rect, display: false)
+        statusIcon.translatesAutoresizingMaskIntoConstraints = false
+        statusIcon.imageScaling = .scaleProportionallyDown
+
+        statusLabel.translatesAutoresizingMaskIntoConstraints = false
+        statusLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        statusLabel.textColor = .white
+        statusLabel.alignment = .left
+
+        statusStack.addArrangedSubview(statusIcon)
+        statusStack.addArrangedSubview(statusLabel)
+
+        NSLayoutConstraint.activate([
+            statusStack.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            statusStack.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            statusStack.heightAnchor.constraint(equalToConstant: Self.pillHeight),
+
+            statusIcon.widthAnchor.constraint(equalToConstant: 14),
+            statusIcon.heightAnchor.constraint(equalToConstant: 14),
+        ])
     }
 
-    // MARK: - States
+    // MARK: - Geometry & Notch Placement
+
+    private func targetRect(forWidth width: CGFloat) -> NSRect? {
+        let mouse = NSEvent.mouseLocation
+        let screen = NSScreen.screens.first(where: { NSMouseInRect(mouse, $0.frame, false) })
+            ?? NSScreen.main
+            ?? NSScreen.screens.first
+        guard let screen else { return nil }
+
+        let screenFrame = screen.frame
+        let visibleFrame = screen.visibleFrame
+        let x = round(screenFrame.midX - width / 2)
+
+        let topY: CGFloat
+        if screen.safeAreaInsets.top > 0 {
+            // Display has a hardware notch: anchor below the notch
+            topY = screenFrame.maxY - screen.safeAreaInsets.top
+        } else {
+            // Standard screen / external monitor: anchor below the menu bar
+            topY = visibleFrame.maxY
+        }
+
+        let y = topY - Self.pillHeight - 7
+        return NSRect(x: x, y: y, width: width, height: Self.pillHeight)
+    }
+
+    private func updateLayerFrames() {
+        let bounds = container.bounds
+        specularBorder.frame = bounds
+        topHighlight.frame = CGRect(x: 0, y: bounds.height - 2, width: bounds.width, height: 2)
+        container.layer?.shadowPath = CGPath(roundedRect: bounds,
+                                             cornerWidth: Self.pillHeight / 2,
+                                             cornerHeight: Self.pillHeight / 2,
+                                             transform: nil)
+    }
+
+    // MARK: - State Management & Liquid Transitions
 
     func show(_ state: PillState) {
         DispatchQueue.main.async { [self] in
-            positionBelowMenuBar()
+            dismissWorkItem?.cancel()
+            dismissWorkItem = nil
+
+            let previousState = currentState
+            currentState = state
+
             switch state {
             case .recording:
-                // pure waveform, nothing else — always centered
-                resultStack.isHidden = true
-                waveform.isHidden = false
-                stopDots()
-                appear(from: 0.95)
+                recordingDot.startPulsing()
+                dotsView.stop()
+                let width = max(Self.minWidth, recordingStack.fittingSize.width + 4)
+                transition(toWidth: width,
+                           activeView: recordingStack,
+                           inactiveViews: [transcribingStack, statusStack],
+                           isNewAppearance: previousState == .hidden)
+
             case .transcribing:
-                // minimal pulsing dots, no text
-                resultStack.isHidden = true
-                waveform.isHidden = true
-                startDots()
-                appear(from: 1.0)
+                recordingDot.stopPulsing()
+                dotsView.start()
+                let width = max(Self.minWidth, transcribingStack.fittingSize.width + 4)
+                transition(toWidth: width,
+                           activeView: transcribingStack,
+                           inactiveViews: [recordingStack, statusStack],
+                           isNewAppearance: previousState == .hidden)
+
             case .result:
-                // ✓ Transcribed — no truncated text preview
-                stopDots()
-                waveform.isHidden = true
-                resultStack.isHidden = false
-                label.stringValue = "Transcribed"
-                appear(from: 1.0)
-                hide(after: 1.8)
+                recordingDot.stopPulsing()
+                dotsView.stop()
+                statusIcon.image = Self.symbol("checkmark.circle.fill", tint: .systemGreen)
+                statusLabel.stringValue = "Transcribed"
+                let width = max(Self.minWidth, statusStack.fittingSize.width + 4)
+                transition(toWidth: width,
+                           activeView: statusStack,
+                           inactiveViews: [recordingStack, transcribingStack],
+                           isNewAppearance: previousState == .hidden)
+                scheduleDismiss(after: 1.6)
+
+            case .empty:
+                recordingDot.stopPulsing()
+                dotsView.stop()
+                statusIcon.image = Self.symbol("mic.slash.fill", tint: NSColor(white: 0.65, alpha: 1.0))
+                statusLabel.stringValue = "Nothing Heard"
+                let width = max(Self.minWidth, statusStack.fittingSize.width + 4)
+                transition(toWidth: width,
+                           activeView: statusStack,
+                           inactiveViews: [recordingStack, transcribingStack],
+                           isNewAppearance: previousState == .hidden)
+                scheduleDismiss(after: 1.5)
+
+            case .error(let msg):
+                recordingDot.stopPulsing()
+                dotsView.stop()
+                statusIcon.image = Self.symbol("exclamationmark.circle.fill", tint: .systemOrange)
+                statusLabel.stringValue = msg.isEmpty ? "Failed" : msg
+                let width = max(Self.minWidth, statusStack.fittingSize.width + 4)
+                transition(toWidth: width,
+                           activeView: statusStack,
+                           inactiveViews: [recordingStack, transcribingStack],
+                           isNewAppearance: previousState == .hidden)
+                scheduleDismiss(after: 2.0)
+
             case .hidden:
                 dismiss()
             }
@@ -178,21 +340,75 @@ final class DictationPill: NSPanel {
         waveform.level = value
     }
 
-    private func startDots() {
-        dotsView.isHidden = false
-        dotsView.start()
+    private func transition(toWidth width: CGFloat,
+                            activeView: NSView,
+                            inactiveViews: [NSView],
+                            isNewAppearance: Bool) {
+        guard let rect = targetRect(forWidth: width) else { return }
+
+        if isNewAppearance {
+            setFrame(rect, display: false)
+            updateLayerFrames()
+            activeView.alphaValue = 1
+            for v in inactiveViews { v.alphaValue = 0 }
+
+            // Spring appear from notch
+            container.layer?.setAffineTransform(CGAffineTransform(scaleX: 0.94, y: 0.94).translatedBy(x: 0, y: 6))
+            alphaValue = 0
+            orderFrontRegardless()
+
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.28
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                container.layer?.setAffineTransform(.identity)
+                animator().alphaValue = 1.0
+            }
+        } else {
+            // Fluid morphing transition between states
+            NSAnimationContext.runAnimationGroup({ ctx in
+                ctx.duration = 0.25
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                animator().setFrame(rect, display: true)
+                activeView.animator().alphaValue = 1.0
+                for v in inactiveViews {
+                    v.animator().alphaValue = 0.0
+                }
+            }, completionHandler: { [weak self] in
+                self?.updateLayerFrames()
+            })
+        }
     }
 
-    private func stopDots() {
-        dotsView.isHidden = true
+    private func scheduleDismiss(after delay: TimeInterval) {
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.alphaValue > 0 else { return }
+            self.show(.hidden)
+        }
+        dismissWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+
+    private func dismiss() {
+        recordingDot.stopPulsing()
         dotsView.stop()
+
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = 0.26
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            animator().alphaValue = 0
+            container.layer?.setAffineTransform(CGAffineTransform(scaleX: 0.94, y: 0.94).translatedBy(x: 0, y: 4))
+        }, completionHandler: { [weak self] in
+            guard let self else { return }
+            self.orderOut(nil)
+            self.container.layer?.setAffineTransform(.identity)
+            self.currentState = .hidden
+        })
     }
 
     static func symbol(_ name: String, tint: NSColor) -> NSImage? {
-        let cfg = NSImage.SymbolConfiguration(pointSize: 12, weight: .semibold)
+        let cfg = NSImage.SymbolConfiguration(pointSize: 13, weight: .semibold)
         guard let img = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
             .withSymbolConfiguration(cfg) else { return nil }
-        // draw the glyph first, then paint the tint over its alpha (sourceAtop)
         return NSImage(size: img.size, flipped: false) { rect in
             img.draw(in: rect)
             tint.set()
@@ -200,56 +416,87 @@ final class DictationPill: NSPanel {
             return true
         }
     }
+}
 
-    func hide(after delay: TimeInterval) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-            guard let self, self.alphaValue > 0 else { return }
-            self.show(.hidden)
-        }
+// MARK: - Live Recording Beacon Dot
+
+final class RecordingDotView: NSView {
+    private let dotLayer = CALayer()
+    private let haloLayer = CALayer()
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        setupDot()
     }
 
-    // MARK: - Animations (slow + gentle)
-
-    private func appear(from scale: CGFloat) {
-        // set the starting transform now, then animate to full size (identity),
-        // so the pill always ends at the same size in every state
-        container.layer?.setAffineTransform(CGAffineTransform(scaleX: scale, y: scale))
-        NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.32
-            ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            container.layer?.setAffineTransform(.identity)
-            alphaValue = 1
-        }
-        orderFrontRegardless()
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        wantsLayer = true
+        setupDot()
     }
 
-    private func dismiss() {
-        NSAnimationContext.runAnimationGroup({ ctx in
-            ctx.duration = 0.40
-            ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            alphaValue = 0
-            container.layer?.setAffineTransform(CGAffineTransform(scaleX: 0.96, y: 0.96))
-        }, completionHandler: { [self] in
-            orderOut(nil)
-            container.layer?.setAffineTransform(.identity)
-            stopDots()
-        })
+    private func setupDot() {
+        // Soft glowing halo
+        haloLayer.backgroundColor = NSColor.systemRed.withAlphaComponent(0.3).cgColor
+        haloLayer.cornerRadius = 4.0
+        haloLayer.opacity = 0
+        layer?.addSublayer(haloLayer)
+
+        // Core bright red dot
+        dotLayer.backgroundColor = NSColor.systemRed.cgColor
+        dotLayer.cornerRadius = 3.5
+        layer?.addSublayer(dotLayer)
+    }
+
+    override func layout() {
+        super.layout()
+        dotLayer.frame = CGRect(x: (bounds.width - 7) / 2, y: (bounds.height - 7) / 2, width: 7, height: 7)
+        haloLayer.frame = bounds
+    }
+
+    func startPulsing() {
+        if dotLayer.animation(forKey: "breathe") != nil { return }
+
+        let pulse = CABasicAnimation(keyPath: "opacity")
+        pulse.fromValue = 0.70
+        pulse.toValue = 1.0
+        pulse.duration = 0.85
+        pulse.autoreverses = true
+        pulse.repeatCount = .infinity
+        pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        dotLayer.add(pulse, forKey: "breathe")
+
+        let haloPulse = CABasicAnimation(keyPath: "opacity")
+        haloPulse.fromValue = 0.15
+        haloPulse.toValue = 0.60
+        haloPulse.duration = 0.85
+        haloPulse.autoreverses = true
+        haloPulse.repeatCount = .infinity
+        haloPulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        haloLayer.add(haloPulse, forKey: "halo")
+    }
+
+    func stopPulsing() {
+        dotLayer.removeAnimation(forKey: "breathe")
+        haloLayer.removeAnimation(forKey: "halo")
+        dotLayer.opacity = 1.0
+        haloLayer.opacity = 0.0
     }
 }
 
-/// Flowing vertical bars: a symmetric bell of rounded bars whose heights ripple
-/// with a traveling wave and the live mic level — the classic dictation wave
-/// (commercial dictation software style). Pure white, always balanced around the center.
-final class WaveformView: NSView {
-    var level: Float = 0 {
-        didSet { needsDisplay = true }
-    }
+// MARK: - 60 FPS Multi-Band Audio Visualizer
 
-    private var displayLevel: Float = 0
+final class WaveformView: NSView {
+    var level: Float = 0
+
+    private var targetLevel: Float = 0
+    private var smoothedLevel: Float = 0
     private var phase: Float = 0
     private var timer: Timer?
-    private let barCount = 31
-    private let centerIndex = 15
+
+    private let barCount = 19
+    private let centerIndex = 9
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -261,56 +508,87 @@ final class WaveformView: NSView {
         startAnimation()
     }
 
-    deinit { timer?.invalidate() }
-
-    private func startAnimation() {
-        timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 20.0, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            self.displayLevel += (self.level - self.displayLevel) * 0.20
-            self.phase += 0.16
-            self.needsDisplay = true
-        }
+    deinit {
+        timer?.invalidate()
     }
 
-    override var intrinsicContentSize: NSSize { NSSize(width: 80, height: 20) }
+    private func startAnimation() {
+        // High-framerate (60 FPS) rendering loop in common runloop mode
+        let t = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            self.targetLevel = self.level
+
+            // Organic audio ballistics: fast attack, smooth exponential decay
+            if self.targetLevel > self.smoothedLevel {
+                self.smoothedLevel += (self.targetLevel - self.smoothedLevel) * 0.40
+            } else {
+                self.smoothedLevel += (self.targetLevel - self.smoothedLevel) * 0.10
+            }
+
+            self.phase += 0.08
+            self.needsDisplay = true
+        }
+        RunLoop.main.add(t, forMode: .common)
+        timer = t
+    }
+
+    override var intrinsicContentSize: NSSize { NSSize(width: 82, height: 20) }
 
     override func draw(_ dirtyRect: NSRect) {
-        let barW: CGFloat = 1.6
-        let gap: CGFloat = 0.9
+        let barW: CGFloat = 2.0
+        let gap: CGFloat = 2.2
         let totalW = CGFloat(barCount) * (barW + gap) - gap
-        let maxH = bounds.height
+        let maxH = bounds.height - 4
         var x = (bounds.width - totalW) / 2
-        let env = CGFloat(displayLevel)
+        let env = CGFloat(smoothedLevel)
 
-        // envelope: symmetric bell taper x traveling wave x mic level
+        // Gaussian bell curve + dual traveling harmonic waves
         var heights = [CGFloat](repeating: 0, count: barCount)
         for i in 0..<barCount {
             let dist = CGFloat(abs(i - centerIndex)) / CGFloat(centerIndex)
-            let taper = 1.0 - dist * dist * 0.80
-            let wave = 0.5 + 0.5 * CGFloat(sin(Double(phase) + Double(i) * 0.55))
-            heights[i] = maxH * taper * (0.10 + 0.90 * env * wave)
+            // Gaussian bell taper
+            let taper = exp(-dist * dist * 1.8)
+
+            // Organic idle breathing wave when silent (so it never looks frozen)
+            let idleWave = CGFloat(sin(Double(phase) * 1.8 + Double(i) * 0.45)) * 1.2
+            let baseHeight: CGFloat = 3.0 + idleWave * taper
+
+            // Voice reactive wave
+            let voiceWave = 0.55 + 0.45 * CGFloat(sin(Double(phase) * 3.5 + Double(i) * 0.85))
+            let activeHeight = maxH * taper * env * voiceWave
+
+            heights[i] = max(2.5, min(maxH, baseHeight + activeHeight))
         }
-        // one smoothing pass so the flow reads continuous
+
+        // Single smoothing pass for liquid contour continuity
         var smoothed = heights
         for i in 1..<(barCount - 1) {
             smoothed[i] = (heights[i - 1] + 2 * heights[i] + heights[i + 1]) / 4
         }
 
-        NSColor.white.withAlphaComponent(0.95).setFill()
         for i in 0..<barCount {
-            let rect = NSRect(x: x, y: (bounds.height - smoothed[i]) / 2,
-                              width: barW, height: max(smoothed[i], 2))
-            NSBezierPath(roundedRect: rect, xRadius: barW / 2, yRadius: barW / 2).fill()
+            let dist = CGFloat(abs(i - centerIndex)) / CGFloat(centerIndex)
+            // Edge bars are slightly more transparent for visual depth
+            let alpha = 0.96 - dist * 0.22
+            NSColor.white.withAlphaComponent(alpha).setFill()
+
+            let h = smoothed[i]
+            let rect = NSRect(x: x, y: (bounds.height - h) / 2, width: barW, height: h)
+            let path = NSBezierPath(roundedRect: rect, xRadius: barW / 2, yRadius: barW / 2)
+            path.fill()
+
             x += barW + gap
         }
     }
 }
 
+// MARK: - Undulating Transcribing Dots
+
 final class DotsView: NSView {
     private var dotLayers: [CALayer] = []
     private let dotCount = 3
-    private let diameter: CGFloat = 5
-    private let gap: CGFloat = 6
+    private let diameter: CGFloat = 4.5
+    private let gap: CGFloat = 4.5
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -327,8 +605,8 @@ final class DotsView: NSView {
     private func makeDots() {
         for _ in 0..<dotCount {
             let dot = CALayer()
-            dot.backgroundColor = NSColor.white.cgColor
-            dot.opacity = 0.25
+            dot.backgroundColor = NSColor(white: 0.95, alpha: 1.0).cgColor
+            dot.opacity = 0.35
             layer?.addSublayer(dot)
             dotLayers.append(dot)
         }
@@ -347,22 +625,32 @@ final class DotsView: NSView {
 
     func start() {
         for (i, dot) in dotLayers.enumerated() {
-            if dot.animation(forKey: "pulse") != nil { continue }
+            if dot.animation(forKey: "wave") != nil { continue }
+
+            let group = CAAnimationGroup()
+            group.duration = 0.95
+            group.repeatCount = .infinity
+            group.autoreverses = true
+            group.beginTime = CACurrentMediaTime() + Double(i) * 0.18
+
             let pulse = CABasicAnimation(keyPath: "opacity")
-            pulse.fromValue = 0.25
+            pulse.fromValue = 0.35
             pulse.toValue = 1.0
-            pulse.duration = 0.7
-            pulse.autoreverses = true
-            pulse.repeatCount = .infinity
-            pulse.beginTime = CACurrentMediaTime() + Double(i) * 0.23
-            dot.add(pulse, forKey: "pulse")
+
+            let lift = CABasicAnimation(keyPath: "transform.translation.y")
+            lift.fromValue = 0
+            lift.toValue = -2.0
+
+            group.animations = [pulse, lift]
+            group.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            dot.add(group, forKey: "wave")
         }
     }
 
     func stop() {
         for dot in dotLayers {
-            dot.removeAnimation(forKey: "pulse")
-            dot.opacity = 0.25
+            dot.removeAnimation(forKey: "wave")
+            dot.opacity = 0.35
         }
     }
 }

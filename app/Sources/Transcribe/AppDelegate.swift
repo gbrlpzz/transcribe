@@ -154,9 +154,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.button?.contentTintColor = .systemRed
         pill.show(.recording)
         levelTimer?.invalidate()
-        levelTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+        let t = Timer(timeInterval: 0.033, repeats: true) { [weak self] _ in
             self?.pill.updateLevel(self?.recorder.level() ?? 0)
         }
+        RunLoop.main.add(t, forMode: .common)
+        levelTimer = t
     }
 
     private func showTranscribing() {
@@ -291,9 +293,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     let text = tr.text.trimmingCharacters(in: .whitespacesAndNewlines)
                     if text.isEmpty {
                         self.showIdleIcon()
-                        self.pill.show(.hidden)
-                        self.presentAlert(title: "Nothing Heard",
-                                          message: "The recording was empty. Try speaking closer to the microphone.")
+                        self.pill.show(.empty)
                     } else if self.config.paste && AXIsProcessTrusted() {
                         Paste.paste(text)
                         self.flashResult(text)
@@ -306,7 +306,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     }
                 case .failure(let error):
                     self.showIdleIcon()
-                    self.pill.show(.hidden)
+                    self.pill.show(.error("Failed"))
                     self.presentAlert(title: "Transcription Failed",
                                       message: error.localizedDescription)
                 }
