@@ -258,7 +258,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         switch state {
         case .idle: startDictation()
         case .recording: stopDictation()
-        case .transcribing: cancelDictation()
+        case .transcribing: break
         }
     }
 

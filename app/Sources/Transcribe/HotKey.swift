@@ -1,9 +1,9 @@
 import Carbon
 import Foundation
 
-/// Global hotkey (press-and-hold) via the Carbon event API — the same mechanism
-/// apps like commercial dictation software use. No accessibility permission is required to
-/// register a global hotkey; it is only needed for the paste step.
+/// Global hotkey via the Carbon event API — the same mechanism apps like
+/// commercial dictation software use. Each HotKey instance registers a unique ID and verifies
+/// that received Carbon events match its own registration.
 final class HotKey {
     enum Action {
         case pressed
@@ -14,10 +14,23 @@ final class HotKey {
 
     private var hotKeyRef: EventHotKeyRef?
     private var handlerRef: EventHandlerRef?
-    private let hotKeyID = EventHotKeyID(
-        signature: OSType(0x5452_5343), // "TRSC"
-        id: 1
-    )
+
+    private static var nextID: UInt32 = 1
+    private static let lock = NSLock()
+
+    private let hotKeyID: EventHotKeyID
+
+    init() {
+        Self.lock.lock()
+        let currentID = Self.nextID
+        Self.nextID += 1
+        Self.lock.unlock()
+
+        self.hotKeyID = EventHotKeyID(
+            signature: OSType(0x5452_5343), // "TRSC"
+            id: currentID
+        )
+    }
 
     /// Register a hotkey. `modifiers` uses Carbon masks (cmdKey, optionKey, ...).
     /// Returns false if the combination is already taken by another app.
@@ -39,6 +52,12 @@ final class HotKey {
             var id = EventHotKeyID()
             GetEventParameter(event, kind, EventParamType(typeEventHotKeyID),
                               nil, MemoryLayout<EventHotKeyID>.size, nil, &id)
+
+            // Strict ID match: only handle events meant for this specific instance
+            guard id.id == hotKey.hotKeyID.id && id.signature == hotKey.hotKeyID.signature else {
+                return noErr
+            }
+
             let action: Action = GetEventKind(event) == UInt32(kEventHotKeyPressed) ? .pressed : .released
             hotKey.onAction?(action)
             return noErr
@@ -49,7 +68,7 @@ final class HotKey {
         let status = RegisterEventHotKey(keyCode, modifiers, hotKeyID,
                                          GetApplicationEventTarget(), 0, &hotKeyRef)
         if status != noErr {
-            NSLog("Transcribe: failed to register hotkey (status %d)", status)
+            NSLog("Transcribe: failed to register hotkey ID %d (status %d)", hotKeyID.id, status)
             return false
         }
         return true
