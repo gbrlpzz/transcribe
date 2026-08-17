@@ -6,7 +6,6 @@ import ApplicationServices
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var hotKey: HotKey?
-    private var escapeHotKey: HotKey?
     private let recorder = Recorder()
     private let pill = DictationPill()
     private var engine: EngineClient!
@@ -17,6 +16,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var state: DictationState = .idle
     private var isCancelled = false
     private var levelTimer: Timer?
+    private var globalEscapeMonitor: Any?
+    private var localEscapeMonitor: Any?
 
     // menu handles
     private var setupItem: NSMenuItem!
@@ -43,7 +44,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         engine = EngineClient(port: config.port)
         setupStatusItem()
         setupHotKey()
-        setupEscapeKey()
         setupPill()
         engine.ensureEngineRunning { [weak self] ok in
             self?.refreshEngineState()
@@ -59,14 +59,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func setupEscapeKey() {
-        let esc = HotKey()
-        esc.onAction = { [weak self] action in
-            if action == .pressed {
-                self?.cancelDictation()
+    private func startEscapeMonitoring() {
+        stopEscapeMonitoring()
+        globalEscapeMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            if event.keyCode == 53 { // 53 == kVK_Escape
+                DispatchQueue.main.async {
+                    self?.cancelDictation()
+                }
             }
         }
-        escapeHotKey = esc
+        localEscapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            if event.keyCode == 53 {
+                DispatchQueue.main.async {
+                    self?.cancelDictation()
+                }
+                return nil // swallows the event
+            }
+            return event
+        }
+    }
+
+    private func stopEscapeMonitoring() {
+        if let m = globalEscapeMonitor {
+            NSEvent.removeMonitor(m)
+            globalEscapeMonitor = nil
+        }
+        if let m = localEscapeMonitor {
+            NSEvent.removeMonitor(m)
+            localEscapeMonitor = nil
+        }
     }
 
     private var engineUp = false {
@@ -277,14 +298,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         isCancelled = false
         state = .recording
         showRecording()
-        // Register Esc key to intercept and cancel while dictating
-        escapeHotKey?.register(modifiers: 0, keyCode: 53)
+        startEscapeMonitoring()
         do {
             _ = try recorder.start()
             NSSound(named: NSSound.Name("Pop"))?.play()
         } catch {
             state = .idle
-            escapeHotKey?.unregister()
+            stopEscapeMonitoring()
             showIdleIcon()
             presentAlert(title: "Can't Record", message: error.localizedDescription)
         }
@@ -305,7 +325,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         isCancelled = true
         levelTimer?.invalidate()
         levelTimer = nil
-        escapeHotKey?.unregister()
+        stopEscapeMonitoring()
 
         if recorder.isRecording {
             if let url = recorder.currentURL {
@@ -325,7 +345,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             guard ok else {
                 self.state = .idle
-                self.escapeHotKey?.unregister()
+                self.stopEscapeMonitoring()
                 self.showIdleIcon()
                 self.presentAlert(title: "Engine Not Found",
                                   message: "Install the engine first:\n\n    uv tool install transcribe\n\nThen restart Transcribe.")
@@ -335,7 +355,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.engine.transcribe(path: url, language: self.config.language) { result in
                 defer {
                     self.state = .idle
-                    self.escapeHotKey?.unregister()
+                    self.stopEscapeMonitoring()
                 }
                 if self.isCancelled {
                     try? FileManager.default.removeItem(at: url)
