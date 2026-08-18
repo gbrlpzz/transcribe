@@ -56,7 +56,7 @@ final class DictationPill: NSPanel {
                    backing: .buffered, defer: false)
         isOpaque = false
         backgroundColor = .clear
-        hasShadow = false
+        hasShadow = true
         isReleasedWhenClosed = false
         level = .statusBar
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
@@ -141,11 +141,10 @@ final class DictationPill: NSPanel {
         topHighlight.cornerCurve = .continuous
         visualEffect.layer?.addSublayer(topHighlight)
 
-        // 5. Shadow Depth
-        container.layer?.shadowColor = NSColor.black.cgColor
-        container.layer?.shadowOpacity = 0.45
-        container.layer?.shadowOffset = CGSize(width: 0, height: -4)
-        container.layer?.shadowRadius = 16
+        // Shadow: the OS draws a soft, capsule-hugging window shadow from the
+        // rendered pill shape (hasShadow = true on the panel). This is the same
+        // engine that shapes the notch's shadow, so it can never render as a
+        // hard box regardless of layout timing.
 
         configureRecordingStack()
         configureTranscribingStack()
@@ -270,10 +269,6 @@ final class DictationPill: NSPanel {
         let bounds = container.bounds
         specularBorder.frame = bounds
         topHighlight.frame = CGRect(x: 0, y: bounds.height - 2, width: bounds.width, height: 2)
-        container.layer?.shadowPath = CGPath(roundedRect: bounds,
-                                             cornerWidth: Self.pillHeight / 2,
-                                             cornerHeight: Self.pillHeight / 2,
-                                             transform: nil)
     }
 
     // MARK: - State Management & Liquid Transitions
