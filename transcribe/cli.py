@@ -111,7 +111,20 @@ def _osa_escape(s: str) -> str:
 
 
 def notify(title: str, message: str) -> None:
-    """Best-effort macOS notification (silent no-op if osascript is missing)."""
+    """Best-effort macOS notification.
+
+    Uses ``terminal-notifier`` when available (reliable, session-attached) and
+    otherwise falls back to ``osascript display notification``. Silent no-op if
+    neither is usable.
+    """
+    tn = shutil.which("terminal-notifier")
+    if tn:
+        try:
+            subprocess.run([tn, "-title", title, "-message", message],
+                           capture_output=True, timeout=5)
+            return
+        except Exception:  # noqa: BLE001
+            pass
     try:
         script = f'display notification "{_osa_escape(message)}" with title "{_osa_escape(title)}"'
         subprocess.run(["osascript", "-e", script], capture_output=True, timeout=5)
@@ -120,10 +133,14 @@ def notify(title: str, message: str) -> None:
 
 
 def _daemonize() -> bool:
-    """Fork into a detached background process.
+    """Fork into a background process that can still post notifications.
 
     Returns ``True`` in the child (keep working) and ``False`` in the parent
-    (exit immediately). Falls back to foreground if forking is unavailable.
+    (exit immediately). Uses a new process group in the *same* session so the
+    child stays attached to the user's GUI session — meaning macOS
+    notifications still deliver — while being detached from the launching
+    process group so it survives the Quick Action / terminal exiting. Falls
+    back to foreground if forking is unavailable.
     """
     try:
         pid = os.fork()
@@ -131,14 +148,10 @@ def _daemonize() -> bool:
         return True
     if pid > 0:
         return False
-    os.setsid()
     try:
-        pid2 = os.fork()
+        os.setpgrp()
     except OSError:
         pass
-    else:
-        if pid2 > 0:
-            os._exit(0)
     devnull = os.open(os.devnull, os.O_RDWR)
     os.dup2(devnull, 0)
     os.dup2(devnull, 1)
@@ -195,6 +208,8 @@ def cmd_listen(args, cfg: Config) -> int:
 
 
 def cmd_file(args, cfg: Config) -> int:
+    if args.notify and args.paths:
+        notify("Transcribe", f"Transcribing {os.path.basename(args.paths[0])}…")
     if args.background and not _daemonize():
         return 0  # parent exits; the detached child continues below
 
