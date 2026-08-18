@@ -125,6 +125,44 @@ def _pcm_to_wav(pcm_path: str, wav_path: str, sample_rate: int) -> None:
         fh.write(data)
 
 
+def audio_to_wav(path: str, sr: int = 16000) -> str:
+    """Normalize any audio file to a 16 kHz mono PCM WAV via ffmpeg.
+
+    Whisper backends are picky about container/codec combinations; routing every
+    input through ffmpeg first makes file transcription reliable across m4a, mp3,
+    aac, ogg, wav, etc. Returns the path to a temporary WAV (caller deletes it).
+
+    Raises ``RuntimeError`` with an actionable message if ffmpeg is missing or the
+    file cannot be decoded.
+    """
+    ff = ffmpeg_path()
+    if not ff:
+        raise RuntimeError(
+            "ffmpeg not found — install it with `brew install ffmpeg` so file "
+            "transcription can decode this audio"
+        )
+    if not os.path.exists(path):
+        raise RuntimeError(f"audio file not found: {path}")
+    out = tempfile.mktemp(suffix=".wav")
+    proc = subprocess.run(
+        [ff, "-y", "-i", path, "-vn", "-ac", "1", "-ar", str(sr),
+         "-c:a", "pcm_s16le", out],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    if proc.returncode != 0 or not os.path.exists(out) or os.path.getsize(out) == 0:
+        # Clean up a possible empty/partial output before reporting failure.
+        if os.path.exists(out):
+            try:
+                os.remove(out)
+            except OSError:
+                pass
+        raise RuntimeError(
+            f"ffmpeg could not decode {os.path.basename(path)} — the file may be "
+            "corrupt, DRM-protected, or an unsupported format"
+        )
+    return out
+
+
 def record_interactive(device: str = "auto", sample_rate: int = 16000,
                        prompt: str | None = None) -> str:
     """Record until the user presses Enter; returns the WAV path."""

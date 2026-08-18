@@ -18,6 +18,8 @@ import platform
 import time
 from typing import Any
 
+from transcribe.audio import audio_to_wav
+
 # models are cached locally; hide the "Fetching 4 files" hub flash on repeat runs
 os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
 
@@ -115,22 +117,33 @@ class Transcriber:
         requested = language or self.language   # per-call overrides instance
         lang = None if requested == "auto" else requested
         t0 = time.time()
-        if self.backend == "mlx":
-            result = self._mlx.transcribe(
-                audio_path,
-                path_or_hf_repo=self.model,
-                language=lang,
-                verbose=None if not verbose else verbose,
-            )
-            text = result.get("text", "").strip()
-            detected = result.get("language", lang or "")
-        else:
-            segments, info = self._faster.transcribe(
-                audio_path, language=lang, vad_filter=True
-            )
-            parts = [seg.text.strip() for seg in segments]
-            text = " ".join(parts).strip()
-            detected = info.language if lang is None else lang
+
+        # Normalize to a 16 kHz mono WAV first so decode failures are caught
+        # early with a clear message instead of an obscure backend traceback.
+        wav_path = audio_to_wav(audio_path)
+        try:
+            if self.backend == "mlx":
+                result = self._mlx.transcribe(
+                    wav_path,
+                    path_or_hf_repo=self.model,
+                    language=lang,
+                    verbose=None if not verbose else verbose,
+                )
+                text = result.get("text", "").strip()
+                detected = result.get("language", lang or "")
+            else:
+                segments, info = self._faster.transcribe(
+                    wav_path, language=lang, vad_filter=True
+                )
+                parts = [seg.text.strip() for seg in segments]
+                text = " ".join(parts).strip()
+                detected = info.language if lang is None else lang
+        finally:
+            if wav_path and os.path.exists(wav_path):
+                try:
+                    os.remove(wav_path)
+                except OSError:
+                    pass
         elapsed = time.time() - t0
         return {
             "text": text,

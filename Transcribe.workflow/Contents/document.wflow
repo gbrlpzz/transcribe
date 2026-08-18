@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>AMApplication</key>
+	<string>Automator</string>
+	<key>AMCanShowSelectedItemsWhenRun</key>
+	<false/>
+	<key>AMDocumentVersion</key>
+	<string>2.0</string>
+	<key>AMReadOnly</key>
+	<false/>
+	<key>AMWorkflowContents</key>
+	<array>
+		<dict>
+			<key>actionArchitecture</key>
+			<string>Standard</string>
+			<key>actionID</key>
+			<string>com.apple.RunShellScript</string>
+			<key>actionName</key>
+			<string>Run Shell Script</string>
+			<key>actionParameters</key>
+			<dict>
+				<key>COMMAND_STRING</key>
+				<string>#!/usr/bin/env bash
+set -u
+REPO="$HOME/transcribe"
+VENV_PY="$REPO/.venv/bin/python"
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
+FILES=("$@")
+if [ "${#FILES[@]}" -eq 0 ]; then
+  while IFS= read -r line; do
+    [ -n "$line" ] &amp;&amp; FILES+=("$line")
+  done
+fi
+if [ "${#FILES[@]}" -eq 0 ]; then exit 0; fi
+if [ -x "$VENV_PY" ]; then
+  RUNNER=("$VENV_PY" -m transcribe)
+elif command -v transcribe &gt;/dev/null 2&gt;&amp;1; then
+  RUNNER=(transcribe)
+elif command -v uv &gt;/dev/null 2&gt;&amp;1; then
+  RUNNER=(uv run --project "$REPO" transcribe)
+else
+  osascript -e 'display notification "transcribe not found - install with: uv tool install transcribe" with title "Transcribe"' 2&gt;/dev/null
+  exit 1
+fi
+exec "${RUNNER[@]}" file --background --notify "${FILES[@]}"
+</string>
+				<key>CheckedForUpdates</key>
+				<string></string>
+				<key>InputUUID</key>
+				<string></string>
+				<key>MessageDestination</key>
+				<string>ReplaceSelectedItems</string>
+				<key>POSIXPATHS</key>
+				<true/>
+				<key>Shell</key>
+				<string>/bin/bash</string>
+				<key>Source</key>
+				<string>#!/usr/bin/env bash
+set -u
+REPO="$HOME/transcribe"
+VENV_PY="$REPO/.venv/bin/python"
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
+FILES=("$@")
+if [ "${#FILES[@]}" -eq 0 ]; then
+  while IFS= read -r line; do
+    [ -n "$line" ] &amp;&amp; FILES+=("$line")
+  done
+fi
+if [ "${#FILES[@]}" -eq 0 ]; then exit 0; fi
+if [ -x "$VENV_PY" ]; then
+  RUNNER=("$VENV_PY" -m transcribe)
+elif command -v transcribe &gt;/dev/null 2&gt;&amp;1; then
+  RUNNER=(transcribe)
+elif command -v uv &gt;/dev/null 2&gt;&amp;1; then
+  RUNNER=(uv run --project "$REPO" transcribe)
+else
+  osascript -e 'display notification "transcribe not found - install with: uv tool install transcribe" with title "Transcribe"' 2&gt;/dev/null
+  exit 1
+fi
+exec "${RUNNER[@]}" file --background --notify "${FILES[@]}"
+</string>
+				<key>sourceDefault</key>
+				<string>/bin/bash</string>
+				<key>userShellPath</key>
+				<string></string>
+			</dict>
+			<key>actionType</key>
+			<string>AppleScript</string>
+			<key>appleScript</key>
+			<string></string>
+			<key>classID</key>
+			<string>com.apple.RunShellScript</string>
+			<key>isHidden</key>
+			<integer>0</integer>
+			<key>isSelected</key>
+			<integer>1</integer>
+			<key>nodeType</key>
+			<string>Action</string>
+			<key>universalUniqueID</key>
+			<string>AFBACD5B-3096-4E2D-BB47-F2B40FE8BDB8</string>
+		</dict>
+	</array>
+	<key>AMWorkflowVersion</key>
+	<string>2.0</string>
+</dict>
+</plist>

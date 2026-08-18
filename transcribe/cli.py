@@ -53,12 +53,18 @@ def _parse() -> argparse.ArgumentParser:
 
     file_p = sub.add_parser("file", help="transcribe existing audio files")
     file_p.add_argument("paths", nargs="+", metavar="AUDIO")
-    file_p.add_argument("-l", "--language", default=None)
-    file_p.add_argument("-m", "--model", default=None)
+    file_p.add_argument("-l", "--language", default="en",
+                        help="transcription language (default: en for files)")
+    file_p.add_argument("-m", "--model", default=None,
+                        help="model alias or HF repo (default: turbo)")
     file_p.add_argument("--smart-text", dest="smart_text", action="store_true", default=None)
     file_p.add_argument("--no-smart-text", dest="smart_text", action="store_false")
     file_p.add_argument("--json", action="store_true", help="machine-readable output")
     file_p.add_argument("--no-keep", action="store_true")
+    file_p.add_argument("--notify", action="store_true",
+                        help="show a macOS notification when each file finishes")
+    file_p.add_argument("--background", action="store_true",
+                        help="detach and run in the background so you can keep dictating")
 
     serve_p = sub.add_parser("serve", help="run the localhost engine server (for the app)")
     serve_p.add_argument("--port", type=int, default=None)
@@ -99,6 +105,61 @@ def _smart(text: str, enabled: bool | None, cfg: Config) -> str:
     return text
 
 
+def _osa_escape(s: str) -> str:
+    bs = chr(92)  # backslash
+    return s.replace(bs, bs + bs).replace('"', bs + '"')
+
+
+def notify(title: str, message: str) -> None:
+    """Best-effort macOS notification (silent no-op if osascript is missing)."""
+    try:
+        script = f'display notification "{_osa_escape(message)}" with title "{_osa_escape(title)}"'
+        subprocess.run(["osascript", "-e", script], capture_output=True, timeout=5)
+    except Exception:  # noqa: BLE001 - notifications are best-effort
+        pass
+
+
+def _daemonize() -> bool:
+    """Fork into a detached background process.
+
+    Returns ``True`` in the child (keep working) and ``False`` in the parent
+    (exit immediately). Falls back to foreground if forking is unavailable.
+    """
+    try:
+        pid = os.fork()
+    except OSError:
+        return True
+    if pid > 0:
+        return False
+    os.setsid()
+    try:
+        pid2 = os.fork()
+    except OSError:
+        pass
+    else:
+        if pid2 > 0:
+            os._exit(0)
+    devnull = os.open(os.devnull, os.O_RDWR)
+    os.dup2(devnull, 0)
+    os.dup2(devnull, 1)
+    os.dup2(devnull, 2)
+    return True
+
+
+def _write_markdown(audio_path: str, text: str) -> str:
+    """Write the transcript as ``<basename>.md`` next to the audio file.
+
+    Returns the markdown path (same directory, same stem as the source audio).
+    """
+    nl = chr(10)
+    base = os.path.splitext(audio_path)[0]
+    md_path = base + ".md"
+    title = os.path.splitext(os.path.basename(audio_path))[0]
+    content = f"# {title}{nl}{nl}{text}{nl}"
+    with open(md_path, "w", encoding="utf-8") as fh:
+        fh.write(content)
+    return md_path
+
 def _maybe_keep(args, cfg: Config, wav: str | None, text: str, result: dict):
     """Persist a session unless --no-keep; always honor the TTL cleanup."""
     if not getattr(args, "no_keep", False):
@@ -134,21 +195,40 @@ def cmd_listen(args, cfg: Config) -> int:
 
 
 def cmd_file(args, cfg: Config) -> int:
+    if args.background and not _daemonize():
+        return 0  # parent exits; the detached child continues below
+
     results = []
+    failures = []
     for path in args.paths:
         if not os.path.exists(path):
             print(f"error: no such file: {path}", file=sys.stderr)
-            return 1
-        result = transcribe(path, **_transcribe_args(args, cfg))
+            failures.append(path)
+            if args.notify:
+                notify("Transcription failed", os.path.basename(path))
+            continue
+        try:
+            result = transcribe(path, **_transcribe_args(args, cfg))
+        except Exception as exc:  # noqa: BLE001 - report and keep going
+            print(f"error: failed to transcribe {path}: {exc}", file=sys.stderr)
+            failures.append(path)
+            if args.notify:
+                notify("Transcription failed", f"{os.path.basename(path)} — {exc}")
+            continue
+
         text = _smart(result["text"], args.smart_text, cfg)
-        results.append({"path": path, **result, "text": text})
+        md_path = _write_markdown(path, text)
+        results.append({"path": path, "markdown": md_path, **result, "text": text})
         if not args.json:
-            print(f"--- {path} ---")
+            print(f"--- {path} -> {md_path} ---")
             print(text)
+        if args.notify:
+            notify("Transcription saved", os.path.basename(md_path))
         _maybe_keep(args, cfg, None, text, result)
+
     if args.json:
         print(json.dumps(results, ensure_ascii=False, indent=2))
-    return 0
+    return 1 if failures else 0
 
 
 def cmd_serve(args, cfg: Config) -> int:
