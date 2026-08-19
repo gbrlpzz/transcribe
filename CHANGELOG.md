@@ -2,6 +2,13 @@
 
 All notable changes to Transcribe are documented here.
 
+## [0.2.1] - 2026-08-19
+
+### Fixed
+
+- Restored reliable second `⌃␣` tap behavior: it stops recording and starts transcription.
+- Restored the pre-release Escape monitor path so Escape cancellation does not interfere with the dictation hotkey.
+
 ## [0.2.0] - 2026-08-19
 
 ### Added

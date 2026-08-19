@@ -2,7 +2,6 @@ import AppKit
 import Carbon
 import AVFoundation
 import ApplicationServices
-import CoreGraphics
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
@@ -20,9 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // us ignore a late HTTP response after the user cancels the file job.
     private var activeFileRequest: UUID?
     private var levelTimer: Timer?
-    private var escapeHotKey: HotKey?
-    private var escapeEventTap: CFMachPort?
-    private var escapeRunLoopSource: CFRunLoopSource?
+    private var globalEscapeMonitor: Any?
     private var localEscapeMonitor: Any?
 
     // menu handles
@@ -67,92 +64,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func startEscapeMonitoring() {
         stopEscapeMonitoring()
-
-        // Carbon hot keys are global and consume the key before the focused
-        // application sees it. Register plain Escape only while a dictation is
-        // active, so pressing it cancels Transcribe instead of closing a
-        // terminal/agent session behind the HUD.
-        let hotKey = HotKey()
-        hotKey.onAction = { [weak self] action in
-            guard case .pressed = action else { return }
-            DispatchQueue.main.async {
-                self?.cancelDictation()
+        globalEscapeMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            if event.keyCode == 53 { // 53 == kVK_Escape
+                DispatchQueue.main.async {
+                    self?.cancelDictation()
+                }
             }
         }
-        if hotKey.register(modifiers: 0, keyCode: 53) { // 53 == kVK_Escape
-            escapeHotKey = hotKey
-            return
-        }
-
-        // Fallback for systems that reject a plain Escape Carbon hot key:
-        // a session event tap can both observe and suppress the key globally.
-        let eventMask = CGEventMask(1 << CGEventType.keyDown.rawValue)
-        let userInfo = Unmanaged.passUnretained(self).toOpaque()
-        if let tap = CGEvent.tapCreate(
-            tap: .cgSessionEventTap,
-            place: .headInsertEventTap,
-            options: .defaultTap,
-            eventsOfInterest: eventMask,
-            callback: Self.escapeEventTapCallback,
-            userInfo: userInfo
-        ) {
-            escapeEventTap = tap
-            if let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0) {
-                escapeRunLoopSource = source
-                CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
-                CGEvent.tapEnable(tap: tap, enable: true)
-                return
-            }
-            escapeEventTap = nil
-        }
-
-        // Last-resort in-app fallback. It cannot suppress Escape in another
-        // app, but still cancels safely when Transcribe owns the event.
         localEscapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             if event.keyCode == 53 {
                 DispatchQueue.main.async {
                     self?.cancelDictation()
                 }
-                return nil
+                return nil // swallows the event
             }
             return event
         }
-        NSLog("Transcribe: could not install a global Escape interceptor")
-    }
-
-    private static let escapeEventTapCallback: CGEventTapCallBack = { _, type, event, userInfo in
-        guard let userInfo else { return Unmanaged.passUnretained(event) }
-        let app = Unmanaged<AppDelegate>.fromOpaque(userInfo).takeUnretainedValue()
-
-        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-            if let tap = app.escapeEventTap {
-                CGEvent.tapEnable(tap: tap, enable: true)
-            }
-            return Unmanaged.passUnretained(event)
-        }
-        guard type == .keyDown else { return Unmanaged.passUnretained(event) }
-        guard event.getIntegerValueField(.keyboardEventKeycode) == 53 else {
-            return Unmanaged.passUnretained(event)
-        }
-
-        DispatchQueue.main.async { [weak app] in
-            app?.cancelDictation()
-        }
-        return nil // consume Escape globally
     }
 
     private func stopEscapeMonitoring() {
-        if let hotKey = escapeHotKey {
-            hotKey.unregister()
-            escapeHotKey = nil
-        }
-        if let source = escapeRunLoopSource {
-            CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
-            escapeRunLoopSource = nil
-        }
-        if let tap = escapeEventTap {
-            CGEvent.tapEnable(tap: tap, enable: false)
-            escapeEventTap = nil
+        if let m = globalEscapeMonitor {
+            NSEvent.removeMonitor(m)
+            globalEscapeMonitor = nil
         }
         if let m = localEscapeMonitor {
             NSEvent.removeMonitor(m)
