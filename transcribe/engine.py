@@ -18,7 +18,7 @@ import platform
 import time
 from typing import Any
 
-from transcribe.audio import audio_to_wav
+from transcribe.audio import audio_to_wav, is_pcm_wav
 
 # models are cached locally; hide the "Fetching 4 files" hub flash on repeat runs
 os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
@@ -97,8 +97,11 @@ class Transcriber:
 
     def __init__(self, model: str = DEFAULT_MODEL, backend: str = "auto",
                  language: str = "auto"):
-        self.model = resolve_model(model, detect_backend(backend))
+        # Resolve the backend once. Besides avoiding duplicate import/probe
+        # work, this guarantees model resolution and the selected backend stay
+        # in lockstep when auto-detection is used.
         self.backend = detect_backend(backend)
+        self.model = resolve_model(model, self.backend)
         self.language = language
         self._mlx = None
         self._faster = None
@@ -111,6 +114,27 @@ class Transcriber:
             from faster_whisper import WhisperModel
             self._faster = WhisperModel(self.model, device="auto", compute_type="auto")
 
+    def warm(self) -> None:
+        """Load backend code and model weights before the first request."""
+        self.load()
+        if self.backend == "mlx":
+            # mlx-whisper keeps its model in a process-global holder. Calling
+            # only ``import mlx_whisper`` (the old warm-up behavior) left the
+            # expensive snapshot download and weight load on first dictation.
+            import mlx.core as mx
+            from mlx_whisper.transcribe import ModelHolder
+            ModelHolder.get_model(self.model, dtype=mx.float16)
+
+    @property
+    def is_warm(self) -> bool:
+        if self.backend == "mlx":
+            try:
+                from mlx_whisper.transcribe import ModelHolder
+                return ModelHolder.model is not None and ModelHolder.model_path == self.model
+            except ImportError:
+                return False
+        return self._faster is not None
+
     def transcribe(self, audio_path: str, *, language: str | None = None,
                    verbose: bool = False) -> dict[str, Any]:
         self.load()
@@ -118,9 +142,12 @@ class Transcriber:
         lang = None if requested == "auto" else requested
         t0 = time.time()
 
-        # Normalize to a 16 kHz mono WAV first so decode failures are caught
-        # early with a clear message instead of an obscure backend traceback.
-        wav_path = audio_to_wav(audio_path)
+        # The native recorder already produces 16 kHz mono PCM WAV. Let the
+        # backend decode that file directly; normalizing it first would invoke
+        # ffmpeg twice. Keep normalization for arbitrary external formats and
+        # malformed/non-PCM WAV files so their errors remain actionable.
+        temporary_wav = not is_pcm_wav(audio_path)
+        wav_path = audio_to_wav(audio_path) if temporary_wav else audio_path
         try:
             if self.backend == "mlx":
                 result = self._mlx.transcribe(
@@ -139,7 +166,7 @@ class Transcriber:
                 text = " ".join(parts).strip()
                 detected = info.language if lang is None else lang
         finally:
-            if wav_path and os.path.exists(wav_path):
+            if temporary_wav and wav_path and os.path.exists(wav_path):
                 try:
                     os.remove(wav_path)
                 except OSError:

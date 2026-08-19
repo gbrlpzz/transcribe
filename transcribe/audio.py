@@ -16,6 +16,7 @@ import sys
 import tempfile
 import threading
 import time
+import wave
 
 
 def ffmpeg_path() -> str | None:
@@ -30,6 +31,25 @@ def ffmpeg_path() -> str | None:
         if os.path.exists(candidate):
             return candidate
     return None
+
+
+def is_pcm_wav(path: str, sample_rate: int = 16000) -> bool:
+    """Return whether *path* is already Whisper-friendly PCM WAV audio.
+
+    The native recorder writes exactly this format. Avoiding a second ffmpeg
+    normalization pass saves a subprocess, a temporary file, and a full audio
+    decode before the backend decodes it once more.
+    """
+    try:
+        with wave.open(path, "rb") as fh:
+            return (
+                fh.getcomptype() == "NONE"
+                and fh.getnchannels() == 1
+                and fh.getsampwidth() == 2
+                and fh.getframerate() == sample_rate
+            )
+    except (OSError, wave.Error):
+        return False
 
 
 def list_input_devices() -> list[dict[str, str]]:

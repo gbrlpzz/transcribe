@@ -24,6 +24,9 @@ final class DictationPill: NSPanel {
 
     private static let pillHeight: CGFloat = 34
     private static let minWidth: CGFloat = 132
+    // Keep transparent room around the capsule so its custom shadow is never
+    // clipped by the borderless panel's rectangular backing surface.
+    private static let shadowPadding: CGFloat = 18
 
     var onCancel: (() -> Void)?
 
@@ -51,16 +54,22 @@ final class DictationPill: NSPanel {
     private let statusLabel = NSTextField(labelWithString: "")
 
     init() {
-        super.init(contentRect: NSRect(x: 0, y: 0, width: 140, height: Self.pillHeight),
+        let initialWidth: CGFloat = 140 + (Self.shadowPadding * 2)
+        let initialHeight = Self.pillHeight + (Self.shadowPadding * 2)
+        super.init(contentRect: NSRect(x: 0, y: 0, width: initialWidth, height: initialHeight),
                    styleMask: [.borderless, .nonactivatingPanel],
                    backing: .buffered, defer: false)
         isOpaque = false
         backgroundColor = .clear
-        hasShadow = true
+        // NSWindow.hasShadow renders the whole rectangular window frame. That
+        // produces the straight-edged shadow visible around a capsule. The
+        // capsule owns its own path-based shadow below instead.
+        hasShadow = false
         isReleasedWhenClosed = false
         level = .statusBar
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
         ignoresMouseEvents = false
+        contentView = PillRootView(frame: .zero)
         acceptsMouseMovedEvents = true
         configureUI()
     }
@@ -76,19 +85,30 @@ final class DictationPill: NSPanel {
         container.layer?.cornerRadius = Self.pillHeight / 2
         container.layer?.cornerCurve = .continuous
         container.layer?.masksToBounds = false
+        container.layer?.shadowColor = NSColor.black.cgColor
+        container.layer?.shadowOpacity = 0.38
+        container.layer?.shadowRadius = 10
+        container.layer?.shadowOffset = CGSize(width: 0, height: -4)
         container.onPillClick = { [weak self] in
             guard let self else { return }
             if self.currentState == .recording || self.currentState == .transcribing {
                 self.onCancel?()
             }
         }
+        if let root = root as? PillRootView {
+            root.interactiveView = container
+        }
         root.addSubview(container)
 
         NSLayoutConstraint.activate([
-            container.leadingAnchor.constraint(equalTo: root.leadingAnchor),
-            container.trailingAnchor.constraint(equalTo: root.trailingAnchor),
-            container.topAnchor.constraint(equalTo: root.topAnchor),
-            container.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+            container.leadingAnchor.constraint(equalTo: root.leadingAnchor,
+                                                constant: Self.shadowPadding),
+            container.trailingAnchor.constraint(equalTo: root.trailingAnchor,
+                                                 constant: -Self.shadowPadding),
+            container.topAnchor.constraint(equalTo: root.topAnchor,
+                                           constant: Self.shadowPadding),
+            container.bottomAnchor.constraint(equalTo: root.bottomAnchor,
+                                              constant: -Self.shadowPadding),
         ])
 
         // 1. Apple HIG Frosted Glass Material
@@ -141,10 +161,10 @@ final class DictationPill: NSPanel {
         topHighlight.cornerCurve = .continuous
         visualEffect.layer?.addSublayer(topHighlight)
 
-        // Shadow: the OS draws a soft, capsule-hugging window shadow from the
-        // rendered pill shape (hasShadow = true on the panel). This is the same
-        // engine that shapes the notch's shadow, so it can never render as a
-        // hard box regardless of layout timing.
+        // The panel itself has no shadow: its frame is intentionally larger
+        // than the capsule to give this layer room to render a rounded shadow.
+        // PillContainerView updates the shadow path after Auto Layout lays out
+        // the capsule, so the path always follows its real bounds.
 
         configureRecordingStack()
         configureTranscribingStack()
@@ -250,7 +270,9 @@ final class DictationPill: NSPanel {
 
         let screenFrame = screen.frame
         let visibleFrame = screen.visibleFrame
-        let x = round(screenFrame.midX - width / 2)
+        let panelWidth = width + (Self.shadowPadding * 2)
+        let panelHeight = Self.pillHeight + (Self.shadowPadding * 2)
+        let x = round(screenFrame.midX - panelWidth / 2)
 
         let topY: CGFloat
         if screen.safeAreaInsets.top > 0 {
@@ -261,8 +283,11 @@ final class DictationPill: NSPanel {
             topY = visibleFrame.maxY
         }
 
-        let y = topY - Self.pillHeight - 7
-        return NSRect(x: x, y: y, width: width, height: Self.pillHeight)
+        // The visible capsule remains seven points below the notch/menu bar.
+        // The panel origin is one capsule height plus the padding below that
+        // anchor because AppKit's origin is the panel's bottom edge.
+        let y = topY - Self.pillHeight - 7 - Self.shadowPadding
+        return NSRect(x: x, y: y, width: panelWidth, height: panelHeight)
     }
 
     private func updateLayerFrames() {
@@ -285,6 +310,7 @@ final class DictationPill: NSPanel {
             case .recording:
                 container.toolTip = "Click to cancel dictation (or press Esc)"
                 recordingDot.startPulsing()
+                waveform.start()
                 dotsView.stop()
                 let width = max(Self.minWidth, recordingStack.fittingSize.width + 4)
                 transition(toWidth: width,
@@ -295,6 +321,7 @@ final class DictationPill: NSPanel {
             case .transcribing:
                 container.toolTip = "Click to cancel transcription (or press Esc)"
                 recordingDot.stopPulsing()
+                waveform.stop()
                 dotsView.start()
                 let width = max(Self.minWidth, transcribingStack.fittingSize.width + 4)
                 transition(toWidth: width,
@@ -305,6 +332,7 @@ final class DictationPill: NSPanel {
             case .result:
                 container.toolTip = nil
                 recordingDot.stopPulsing()
+                waveform.stop()
                 dotsView.stop()
                 statusIcon.image = Self.symbol("checkmark.circle.fill", tint: .systemGreen)
                 statusLabel.stringValue = "Transcribed"
@@ -318,6 +346,7 @@ final class DictationPill: NSPanel {
             case .empty:
                 container.toolTip = nil
                 recordingDot.stopPulsing()
+                waveform.stop()
                 dotsView.stop()
                 statusIcon.image = Self.symbol("mic.slash.fill", tint: NSColor(white: 0.65, alpha: 1.0))
                 statusLabel.stringValue = "Nothing Heard"
@@ -331,6 +360,7 @@ final class DictationPill: NSPanel {
             case .error(let msg):
                 container.toolTip = nil
                 recordingDot.stopPulsing()
+                waveform.stop()
                 dotsView.stop()
                 statusIcon.image = Self.symbol("exclamationmark.circle.fill", tint: .systemOrange)
                 statusLabel.stringValue = msg.isEmpty ? "Failed" : msg
@@ -366,6 +396,7 @@ final class DictationPill: NSPanel {
 
         if isNewAppearance {
             setFrame(rect, display: false)
+            contentView?.layoutSubtreeIfNeeded()
             updateLayerFrames()
             activeView.alphaValue = 1
             for v in inactiveViews { v.alphaValue = 0 }
@@ -392,6 +423,7 @@ final class DictationPill: NSPanel {
                     v.animator().alphaValue = 0.0
                 }
             }, completionHandler: { [weak self] in
+                self?.contentView?.layoutSubtreeIfNeeded()
                 self?.updateLayerFrames()
             })
         }
@@ -408,6 +440,7 @@ final class DictationPill: NSPanel {
 
     private func cancelDismiss() {
         recordingDot.stopPulsing()
+        waveform.stop()
         dotsView.stop()
         container.toolTip = nil
 
@@ -427,6 +460,7 @@ final class DictationPill: NSPanel {
 
     private func dismiss() {
         recordingDot.stopPulsing()
+        waveform.stop()
         dotsView.stop()
         container.toolTip = nil
 
@@ -456,6 +490,22 @@ final class DictationPill: NSPanel {
     }
 }
 
+// MARK: - Transparent Panel Hit Testing
+
+/// The panel has extra transparent space for the capsule shadow. Only the
+/// capsule itself should receive clicks; the shadow padding must remain
+/// click-through to the app underneath.
+final class PillRootView: NSView {
+    weak var interactiveView: NSView?
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard let interactiveView, interactiveView.frame.contains(point) else {
+            return nil
+        }
+        return interactiveView
+    }
+}
+
 // MARK: - Interactive Pill Container View
 
 final class PillContainerView: NSView {
@@ -469,6 +519,18 @@ final class PillContainerView: NSView {
     required init?(coder: NSCoder) {
         super.init(coder: coder)
         wantsLayer = true
+    }
+
+    override func layout() {
+        super.layout()
+        guard bounds.width > 0, bounds.height > 0 else { return }
+        // Keep the shadow capsule-shaped after every Auto Layout pass. A
+        // shadowPath is important here: without it Core Animation can fall
+        // back to the view's rectangular bounds.
+        layer?.shadowPath = CGPath(roundedRect: bounds,
+                                    cornerWidth: bounds.height / 2,
+                                    cornerHeight: bounds.height / 2,
+                                    transform: nil)
     }
 
     override func updateTrackingAreas() {
@@ -584,20 +646,22 @@ final class WaveformView: NSView {
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        startAnimation()
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
-        startAnimation()
     }
 
     deinit {
-        timer?.invalidate()
+        stop()
     }
 
-    private func startAnimation() {
-        // High-framerate (60 FPS) rendering loop in common runloop mode
+    func start() {
+        guard timer == nil else { return }
+
+        // High-framerate (60 FPS) rendering loop in common runloop mode. The
+        // HUD is transient, so do not spend a timer and redraw budget while it
+        // is hidden.
         let t = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
             guard let self else { return }
             self.targetLevel = self.level
@@ -614,6 +678,14 @@ final class WaveformView: NSView {
         }
         RunLoop.main.add(t, forMode: .common)
         timer = t
+    }
+
+    func stop() {
+        timer?.invalidate()
+        timer = nil
+        level = 0
+        targetLevel = 0
+        smoothedLevel = 0
     }
 
     override var intrinsicContentSize: NSSize { NSSize(width: 82, height: 20) }

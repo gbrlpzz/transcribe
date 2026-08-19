@@ -3,7 +3,7 @@
 PYTHON ?= .venv/bin/python
 PIP     ?= .venv/bin/pip
 
-.PHONY: help venv install app skill test doctor clean
+.PHONY: help venv install app app-install quick-action-install skill test doctor clean
 
 help: ## show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
@@ -22,10 +22,16 @@ install: ## install engine + skill for the current user (auto-detects hardware b
 app: ## build the native menu-bar app into app/dist/Transcribe.app
 	bash app/build.sh
 
-app-install: app ## build + copy the app to /Applications
+app-install: app quick-action-install ## build + install the app and Finder Quick Action
 	rm -rf /Applications/Transcribe.app
 	cp -R app/dist/Transcribe.app /Applications/
 	@echo "✓ Transcribe.app installed — launch it from Spotlight"
+
+quick-action-install: ## install the Finder right-click action
+	mkdir -p "$(HOME)/Library/Services"
+	rm -rf "$(HOME)/Library/Services/Transcribe.workflow"
+	cp -R Transcribe.workflow "$(HOME)/Library/Services/"
+	@echo "✓ Finder Quick Action installed — use Finder → Quick Actions → Transcribe"
 
 test: ## run the unit tests
 	.venv/bin/pytest -q

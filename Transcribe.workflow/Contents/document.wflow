@@ -3,11 +3,11 @@
 <plist version="1.0">
 <dict>
 	<key>AMApplicationBuild</key>
-	<integer>521</integer>
+	<string>521</string>
 	<key>AMApplicationVersion</key>
 	<string>2.10</string>
 	<key>AMDocumentVersion</key>
-	<integer>2</integer>
+	<string>2</string>
 	<key>actions</key>
 	<array>
 		<dict>
@@ -61,9 +61,12 @@
 					<key>COMMAND_STRING</key>
 					<string>#!/usr/bin/env bash
 set -u
-REPO="$HOME/transcribe"
+REPO="${TRANSCRIBE_REPO:-$HOME/transcribe}"
 VENV_PY="$REPO/.venv/bin/python"
-export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
+export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:/usr/bin:/bin:$PATH"
+if [ -d "$REPO" ]; then
+  cd "$REPO" || exit 1
+fi
 FILES=("$@")
 if [ "${#FILES[@]}" -eq 0 ]; then
   while IFS= read -r line; do
@@ -81,7 +84,7 @@ else
   osascript -e 'display notification "transcribe not found - install with: uv tool install transcribe" with title "Transcribe"' 2&gt;/dev/null
   exit 1
 fi
-exec "${RUNNER[@]}" file --background --notify "${FILES[@]}"
+exec "${RUNNER[@]}" file --background --notify -- "${FILES[@]}"
 </string>
 					<key>CheckedForUserDefaultShell</key>
 					<true/>

@@ -46,7 +46,7 @@ class _Handler(BaseHTTPRequestHandler):
                 "status": "ok",
                 "model": self.server.transcriber.model,
                 "backend": self.server.transcriber.backend,
-                "warm": self.server.transcriber._mlx is not None or self.server.transcriber._faster is not None,
+                "warm": self.server.transcriber.is_warm,
             })
         elif path == "/reload":
             # re-read config and reload the model (used by the app when the model changes)
@@ -145,7 +145,11 @@ def serve(port: int | None = None, *, warm: bool | None = None, verbose: bool = 
     if warm:
         def _warm():
             try:
-                server.transcriber.load()
+                # Serialize warm-up with requests. A health check can succeed
+                # while weights are loading, but the first transcription must
+                # never race a second model initialization.
+                with server.lock:
+                    server.transcriber.warm()
                 print(f"[server] model loaded: {server.transcriber.model} "
                       f"({server.transcriber.backend})", flush=True)
             except Exception as exc:

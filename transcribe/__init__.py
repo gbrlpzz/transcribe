@@ -4,4 +4,4 @@ Press a global hotkey anywhere, speak, and on-device Whisper types your words
 into the focused app. No cloud, no subscription, no audio left behind.
 """
 
-__version__ = "0.1.1"
+__version__ = "0.2.0"

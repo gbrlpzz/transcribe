@@ -25,7 +25,7 @@ import time
 from transcribe import __version__
 from transcribe.audio import record_interactive
 from transcribe.config import Config, config_path, load, save
-from transcribe.engine import MODELS, available_backends, detect_backend, transcribe
+from transcribe.engine import MODELS, Transcriber, available_backends, detect_backend, transcribe
 from transcribe.paste import check_accessibility, paste_text
 from transcribe.smarttext import apply_smart_text, strip_whitespace
 from transcribe.storage import clean, save_session
@@ -215,6 +215,11 @@ def cmd_file(args, cfg: Config) -> int:
 
     results = []
     failures = []
+    # Reuse one loaded transcriber for multi-selection. Constructing a new
+    # faster-whisper model for every file is needlessly expensive; MLX also
+    # benefits from keeping one backend instance for the whole batch.
+    transcriber = None
+    transcribe_options = _transcribe_args(args, cfg)
     for path in args.paths:
         if not os.path.exists(path):
             print(f"error: no such file: {path}", file=sys.stderr)
@@ -223,7 +228,9 @@ def cmd_file(args, cfg: Config) -> int:
                 notify("Transcription failed", os.path.basename(path))
             continue
         try:
-            result = transcribe(path, **_transcribe_args(args, cfg))
+            if transcriber is None:
+                transcriber = Transcriber(**transcribe_options)
+            result = transcriber.transcribe(path)
         except Exception as exc:  # noqa: BLE001 - report and keep going
             print(f"error: failed to transcribe {path}: {exc}", file=sys.stderr)
             failures.append(path)

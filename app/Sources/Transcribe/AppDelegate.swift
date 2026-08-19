@@ -2,6 +2,7 @@ import AppKit
 import Carbon
 import AVFoundation
 import ApplicationServices
+import CoreGraphics
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
@@ -15,8 +16,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private enum DictationState { case idle, recording, transcribing }
     private var state: DictationState = .idle
     private var isCancelled = false
+    // A file request is separate from microphone recording. Keeping an ID lets
+    // us ignore a late HTTP response after the user cancels the file job.
+    private var activeFileRequest: UUID?
     private var levelTimer: Timer?
-    private var globalEscapeMonitor: Any?
+    private var escapeHotKey: HotKey?
+    private var escapeEventTap: CFMachPort?
+    private var escapeRunLoopSource: CFRunLoopSource?
     private var localEscapeMonitor: Any?
 
     // menu handles
@@ -61,28 +67,92 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func startEscapeMonitoring() {
         stopEscapeMonitoring()
-        globalEscapeMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            if event.keyCode == 53 { // 53 == kVK_Escape
-                DispatchQueue.main.async {
-                    self?.cancelDictation()
-                }
+
+        // Carbon hot keys are global and consume the key before the focused
+        // application sees it. Register plain Escape only while a dictation is
+        // active, so pressing it cancels Transcribe instead of closing a
+        // terminal/agent session behind the HUD.
+        let hotKey = HotKey()
+        hotKey.onAction = { [weak self] action in
+            guard case .pressed = action else { return }
+            DispatchQueue.main.async {
+                self?.cancelDictation()
             }
         }
+        if hotKey.register(modifiers: 0, keyCode: 53) { // 53 == kVK_Escape
+            escapeHotKey = hotKey
+            return
+        }
+
+        // Fallback for systems that reject a plain Escape Carbon hot key:
+        // a session event tap can both observe and suppress the key globally.
+        let eventMask = CGEventMask(1 << CGEventType.keyDown.rawValue)
+        let userInfo = Unmanaged.passUnretained(self).toOpaque()
+        if let tap = CGEvent.tapCreate(
+            tap: .cgSessionEventTap,
+            place: .headInsertEventTap,
+            options: .defaultTap,
+            eventsOfInterest: eventMask,
+            callback: Self.escapeEventTapCallback,
+            userInfo: userInfo
+        ) {
+            escapeEventTap = tap
+            if let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0) {
+                escapeRunLoopSource = source
+                CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+                CGEvent.tapEnable(tap: tap, enable: true)
+                return
+            }
+            escapeEventTap = nil
+        }
+
+        // Last-resort in-app fallback. It cannot suppress Escape in another
+        // app, but still cancels safely when Transcribe owns the event.
         localEscapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             if event.keyCode == 53 {
                 DispatchQueue.main.async {
                     self?.cancelDictation()
                 }
-                return nil // swallows the event
+                return nil
             }
             return event
         }
+        NSLog("Transcribe: could not install a global Escape interceptor")
+    }
+
+    private static let escapeEventTapCallback: CGEventTapCallBack = { _, type, event, userInfo in
+        guard let userInfo else { return Unmanaged.passUnretained(event) }
+        let app = Unmanaged<AppDelegate>.fromOpaque(userInfo).takeUnretainedValue()
+
+        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            if let tap = app.escapeEventTap {
+                CGEvent.tapEnable(tap: tap, enable: true)
+            }
+            return Unmanaged.passUnretained(event)
+        }
+        guard type == .keyDown else { return Unmanaged.passUnretained(event) }
+        guard event.getIntegerValueField(.keyboardEventKeycode) == 53 else {
+            return Unmanaged.passUnretained(event)
+        }
+
+        DispatchQueue.main.async { [weak app] in
+            app?.cancelDictation()
+        }
+        return nil // consume Escape globally
     }
 
     private func stopEscapeMonitoring() {
-        if let m = globalEscapeMonitor {
-            NSEvent.removeMonitor(m)
-            globalEscapeMonitor = nil
+        if let hotKey = escapeHotKey {
+            hotKey.unregister()
+            escapeHotKey = nil
+        }
+        if let source = escapeRunLoopSource {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
+            escapeRunLoopSource = nil
+        }
+        if let tap = escapeEventTap {
+            CGEvent.tapEnable(tap: tap, enable: false)
+            escapeEventTap = nil
         }
         if let m = localEscapeMonitor {
             NSEvent.removeMonitor(m)
@@ -327,6 +397,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         levelTimer = nil
         stopEscapeMonitoring()
 
+        // File transcription has no recorder to stop. Invalidate its request
+        // token so a response already in flight cannot resurrect the result.
+        if activeFileRequest != nil {
+            activeFileRequest = nil
+            state = .idle
+            showIdleIcon()
+            pill.cancel()
+            NSSound(named: NSSound.Name("Blow"))?.play()
+            return
+        }
+
         if recorder.isRecording {
             if let url = recorder.currentURL {
                 try? FileManager.default.removeItem(at: url)
@@ -421,36 +502,85 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func pickFile() {
+        // Keep one transcription at a time. The same HUD is used for dictation
+        // and file work, so overlapping jobs would make its status ambiguous.
+        guard state == .idle, activeFileRequest == nil else { return }
+
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.audio, .movie, .mpeg4Audio, .wav]
         panel.allowsMultipleSelection = false
         panel.message = "Choose an audio file to transcribe locally."
         panel.begin { [weak self] response in
             guard response == .OK, let url = panel.url, let self else { return }
+
+            let requestID = UUID()
+            self.activeFileRequest = requestID
+            self.isCancelled = false
+            self.state = .transcribing
             self.showTranscribing()
-            self.engine.ensureEngineRunning { ok in
+
+            self.engine.ensureEngineRunning { [weak self] ok in
+                guard let self, self.activeFileRequest == requestID else { return }
                 guard ok else {
+                    self.activeFileRequest = nil
+                    self.state = .idle
                     self.showIdleIcon()
+                    self.pill.show(.error("Engine Offline"))
                     self.presentAlert(title: "Engine Not Found",
                                       message: "Run `uv tool install transcribe` first.")
                     return
                 }
-                self.engine.transcribe(path: url, language: self.config.language) { result in
-                    self.showIdleIcon()
+
+                self.engine.transcribe(path: url, language: self.config.language) { [weak self] result in
+                    guard let self, self.activeFileRequest == requestID else { return }
+                    self.activeFileRequest = nil
+                    self.state = .idle
+
                     switch result {
                     case .success(let tr):
-                        Paste.copyOnly(tr.text)
+                        let text = tr.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !text.isEmpty else {
+                            self.showIdleIcon()
+                            self.pill.show(.empty)
+                            self.presentAlert(title: "Nothing Heard",
+                                              message: "No speech was detected in the selected file.")
+                            return
+                        }
+
+                        Paste.copyOnly(text)
+                        let outputURL: URL?
+                        do {
+                            outputURL = try self.writeMarkdown(for: url, text: text)
+                        } catch {
+                            outputURL = nil
+                        }
+
+                        self.flashResult(text)
+                        let savedMessage = outputURL.map { "Saved to \($0.path)." }
+                            ?? "The transcript could not be saved beside the audio file."
                         let alert = NSAlert()
                         alert.messageText = "Transcription Ready"
-                        alert.informativeText = "\(tr.text)\n\n(Copied to the clipboard.)"
+                        alert.informativeText = "\(savedMessage)\n\nThe text was copied to the clipboard."
                         alert.addButton(withTitle: "OK")
                         alert.runModal()
+
                     case .failure(let error):
-                        self.presentAlert(title: "Transcription Failed", message: error.localizedDescription)
+                        self.showIdleIcon()
+                        self.pill.show(.error("Failed"))
+                        self.presentAlert(title: "Transcription Failed",
+                                          message: error.localizedDescription)
                     }
                 }
             }
         }
+    }
+
+    private func writeMarkdown(for audioURL: URL, text: String) throws -> URL {
+        let outputURL = audioURL.deletingPathExtension().appendingPathExtension("md")
+        let title = audioURL.deletingPathExtension().lastPathComponent
+        let markdown = "# \(title)\n\n\(text)\n"
+        try markdown.write(to: outputURL, atomically: true, encoding: .utf8)
+        return outputURL
     }
 
     @objc private func openSessions() {

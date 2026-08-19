@@ -96,6 +96,16 @@ Launch **Transcribe** from Spotlight or `/Applications/Transcribe.app`. A microp
   - **Click the HUD**: Click or tap the floating notch capsule to discard recording or cancel transcription instantly.
 - **Menu Bar Controls**: Click the menu-bar icon to switch **Model**, select **Language**, open **Transcribe File…**, or run **Clean Up Old Recordings**.
 
+### Finder Quick Action
+
+Install it once with:
+
+```bash
+make quick-action-install
+```
+
+Then right-click an audio or video file in Finder and choose **Quick Actions → Transcribe**. Transcribe shows start and completion notifications, saves `<file>.md` beside the source, and copies the text to the clipboard.
+
 ### 2. Command-Line Interface (CLI)
 
 ```bash
