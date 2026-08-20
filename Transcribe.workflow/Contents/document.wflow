@@ -60,31 +60,71 @@
 				<dict>
 					<key>COMMAND_STRING</key>
 					<string>#!/usr/bin/env bash
+# transcribe-file.sh — launcher used by the &quot;Transcribe&quot; Finder Quick Action.
+# Resolves the transcribe CLI and runs file transcription detached with a
+# completion notification, so you can keep dictating while it works.
 set -u
-REPO="${TRANSCRIBE_REPO:-$HOME/transcribe}"
-VENV_PY="$REPO/.venv/bin/python"
-export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:/usr/bin:/bin:$PATH"
-if [ -d "$REPO" ]; then
-  cd "$REPO" || exit 1
+
+SCRIPT_DIR=&quot;$(cd -- &quot;$(dirname -- &quot;${BASH_SOURCE[0]}&quot;)&quot; &amp;&amp; pwd)&quot;
+REPO=&quot;${TRANSCRIBE_REPO:-$(cd -- &quot;$SCRIPT_DIR/..&quot; &amp;&amp; pwd)}&quot;
+VENV_PY=&quot;$REPO/.venv/bin/python&quot;
+
+# Ensure ffmpeg / standard tools are on PATH for any subprocess.
+export PATH=&quot;/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:/usr/bin:/bin:$PATH&quot;
+
+# Automator launches services from the user's home directory. Change into the
+# checkout before `python -m transcribe`; otherwise Python can import the
+# checkout as a namespace package and miss transcribe/__init__.py.
+if [ -d &quot;$REPO&quot; ]; then
+  cd &quot;$REPO&quot; || exit 1
 fi
-FILES=("$@")
-if [ "${#FILES[@]}" -eq 0 ]; then
+
+# Collect the audio files: Automator may pass them as arguments ($@) or via stdin.
+FILES=(&quot;$@&quot;)
+if [ &quot;${#FILES[@]}&quot; -eq 0 ]; then
   while IFS= read -r line; do
-    [ -n "$line" ] &amp;&amp; FILES+=("$line")
+    [ -n &quot;$line&quot; ] &amp;&amp; FILES+=(&quot;$line&quot;)
   done
 fi
-if [ "${#FILES[@]}" -eq 0 ]; then exit 0; fi
-if [ -x "$VENV_PY" ]; then
-  RUNNER=("$VENV_PY" -m transcribe)
+if [ &quot;${#FILES[@]}&quot; -eq 0 ]; then
+  exit 0
+fi
+
+# When the native app is installed, let it own the job. This gives Finder
+# transcription the same notch HUD, cancellation, and completion feedback as
+# the menu-bar file flow. Keep the CLI fallback for headless/source-checkout
+# installs where the app is not present.
+APP=&quot;/Applications/Transcribe.app&quot;
+if [[ ! -d &quot;$APP&quot; &amp;&amp; -d &quot;$REPO/app/dist/Transcribe.app&quot; ]]; then
+  APP=&quot;$REPO/app/dist/Transcribe.app&quot;
+fi
+if [[ -d &quot;$APP&quot; ]]; then
+  routed=1
+  for file in &quot;${FILES[@]}&quot;; do
+    # Send a normal open-file event. This is the native macOS handoff and is
+    # more reliable than encoding a filesystem path into a custom URL.
+    if ! /usr/bin/open -g -a &quot;$APP&quot; &quot;$file&quot; &gt;/dev/null 2&gt;&amp;1; then
+      routed=0
+      break
+    fi
+  done
+  if [[ &quot;$routed&quot; -eq 1 ]]; then
+    exit 0
+  fi
+fi
+
+if [ -x &quot;$VENV_PY&quot; ]; then
+  RUNNER=(&quot;$VENV_PY&quot; -m transcribe)
 elif command -v transcribe &gt;/dev/null 2&gt;&amp;1; then
   RUNNER=(transcribe)
 elif command -v uv &gt;/dev/null 2&gt;&amp;1; then
-  RUNNER=(uv run --project "$REPO" transcribe)
+  RUNNER=(uv run --project &quot;$REPO&quot; transcribe)
 else
-  osascript -e 'display notification "transcribe not found - install with: uv tool install transcribe" with title "Transcribe"' 2&gt;/dev/null
+  osascript -e 'display notification &quot;transcribe not found - install with: uv tool install transcribe&quot; with title &quot;Transcribe&quot;' 2&gt;/dev/null
   exit 1
 fi
-exec "${RUNNER[@]}" file --background --notify -- "${FILES[@]}"
+
+exec &quot;${RUNNER[@]}&quot; file --background --notify -- &quot;${FILES[@]}&quot;
 </string>
 					<key>CheckedForUserDefaultShell</key>
 					<true/>
@@ -138,7 +178,7 @@ exec "${RUNNER[@]}" file --background --notify -- "${FILES[@]}"
 		<key>serviceApplicationPath</key>
 		<string>/System/Library/CoreServices/Finder.app</string>
 		<key>serviceInputTypeIdentifier</key>
-		<string>com.apple.Automator.fileSystemObject.file</string>
+		<string>com.apple.Automator.fileSystemObject.music</string>
 		<key>serviceOutputTypeIdentifier</key>
 		<string>com.apple.Automator.nothing</string>
 		<key>serviceProcessesInput</key>

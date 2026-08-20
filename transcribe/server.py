@@ -6,7 +6,8 @@ owns session storage and TTL cleanup.
 
 Endpoints:
 - GET  /health                  {"status": "ok", "model": ..., "backend": ...}
-- POST /transcribe              {"path": "/abs/path.wav", "language": "auto"}
+- POST /transcribe              {"path": "/abs/path.wav", "language": "auto",
+                                 "preserve_source": false}
                                 -> {"text": ..., "language": ..., "duration": ...}
 """
 
@@ -17,6 +18,7 @@ import json
 import os
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlparse
 
 from transcribe.config import Config, load
@@ -49,13 +51,18 @@ class _Handler(BaseHTTPRequestHandler):
                 "warm": self.server.transcriber.is_warm,
             })
         elif path == "/reload":
-            # re-read config and reload the model (used by the app when the model changes)
+            # re-read configuration and reload the warm model
             with self.server.lock:
                 cfg = load()
-                self.server.transcriber = Transcriber(
-                    model=cfg.model, backend=cfg.backend, language=cfg.language)
                 try:
-                    self.server.transcriber.load()
+                    def reload_model():
+                        transcriber = Transcriber(
+                            model=cfg.model, backend=cfg.backend, language=cfg.language)
+                        transcriber.load()
+                        self.server.transcriber = transcriber
+                        self.server.config = cfg
+
+                    self.server.run_engine(reload_model)
                     self._send(200, {"status": "reloaded",
                                      "model": self.server.transcriber.model,
                                      "backend": self.server.transcriber.backend})
@@ -69,10 +76,15 @@ class _Handler(BaseHTTPRequestHandler):
         if parsed_path == "/reload":
             with self.server.lock:
                 cfg = load()
-                self.server.transcriber = Transcriber(
-                    model=cfg.model, backend=cfg.backend, language=cfg.language)
                 try:
-                    self.server.transcriber.load()
+                    def reload_model():
+                        transcriber = Transcriber(
+                            model=cfg.model, backend=cfg.backend, language=cfg.language)
+                        transcriber.load()
+                        self.server.transcriber = transcriber
+                        self.server.config = cfg
+
+                    self.server.run_engine(reload_model)
                     self._send(200, {"status": "reloaded",
                                      "model": self.server.transcriber.model,
                                      "backend": self.server.transcriber.backend})
@@ -87,6 +99,7 @@ class _Handler(BaseHTTPRequestHandler):
             body = json.loads(self.rfile.read(length) or b"{}")
             audio_path = body.get("path", "")
             language = body.get("language", "auto")
+            preserve_source = bool(body.get("preserve_source", False))
         except (ValueError, json.JSONDecodeError) as exc:
             self._send(400, {"error": f"bad request: {exc}"})
             return
@@ -96,7 +109,12 @@ class _Handler(BaseHTTPRequestHandler):
 
         with self.server.lock:
             try:
-                result = self.server.transcriber.transcribe(audio_path, language=language)
+                # MLX's GPU stream is thread-local. Keep warm-up and every
+                # inference on one dedicated engine thread instead of letting
+                # ThreadingHTTPServer move requests between worker threads.
+                result = self.server.run_engine(
+                    lambda: self.server.transcriber.transcribe(
+                        audio_path, language=language))
             except Exception as exc:  # noqa: BLE001 - report any engine failure
                 self._send(500, {"error": str(exc)})
                 return
@@ -105,7 +123,8 @@ class _Handler(BaseHTTPRequestHandler):
         duration = result.get("duration", 0.0)
         try:
             save_session(
-                audio_path, result["text"], duration=duration,
+                None if preserve_source else audio_path,
+                result["text"], duration=duration,
                 model=result["model"], language=result.get("language", ""),
                 source="app", keep_transcripts=self.server.config.keep_transcripts,
             )
@@ -126,6 +145,11 @@ class TranscribeServer(ThreadingHTTPServer):
     allow_reuse_address = True
 
     def __init__(self, addr: tuple[str, int], config: Config, verbose: bool = False):
+        # Create the executor before binding the socket. If another server is
+        # already using the port, ThreadingHTTPServer calls server_close() from
+        # its failed constructor path and the executor must still be present.
+        self.inference_executor = ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="transcribe-engine")
         super().__init__(addr, _Handler)
         self.config = config
         self.verbose = verbose
@@ -133,6 +157,14 @@ class TranscribeServer(ThreadingHTTPServer):
         self.transcriber = Transcriber(model=config.model, backend=config.backend,
                                        language=config.language)
         clean(config.cleanup_ttl_hours)
+
+    def run_engine(self, operation):
+        """Run model work on the one thread that also performs warm-up."""
+        return self.inference_executor.submit(operation).result()
+
+    def server_close(self):
+        self.inference_executor.shutdown(wait=True, cancel_futures=True)
+        super().server_close()
 
 
 def serve(port: int | None = None, *, warm: bool | None = None, verbose: bool = False) -> None:
@@ -145,11 +177,10 @@ def serve(port: int | None = None, *, warm: bool | None = None, verbose: bool = 
     if warm:
         def _warm():
             try:
-                # Serialize warm-up with requests. A health check can succeed
-                # while weights are loading, but the first transcription must
-                # never race a second model initialization.
-                with server.lock:
-                    server.transcriber.warm()
+                # Warm-up and requests share one thread because MLX's GPU
+                # stream is thread-local. A health check can succeed while
+                # weights are loading; requests wait in the same executor.
+                server.run_engine(server.transcriber.warm)
                 print(f"[server] model loaded: {server.transcriber.model} "
                       f"({server.transcriber.backend})", flush=True)
             except Exception as exc:

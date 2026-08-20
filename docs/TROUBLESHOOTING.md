@@ -1,113 +1,101 @@
 # Troubleshooting
 
-## Quick Diagnostic: `transcribe doctor`
+## Check the installation
 
-Run the built-in diagnostic tool first:
+Run:
 
 ```bash
 transcribe doctor
 ```
 
-It validates:
-- `ffmpeg` binary installation and path.
-- Available speech recognition backends (`mlx-whisper` / `faster-whisper`).
-- Working microphone hardware and permissions.
-- macOS Accessibility trust for auto-pasting.
+The command checks the local engine, the selected backend, `ffmpeg`, the model cache, and macOS permissions.
 
----
+## The engine is offline
 
-## Common Issues and Solutions
-
-### 1. Permissions Keep Resetting on App Launch
-macOS binds Microphone and Accessibility permissions to the app's code signature. If the app is compiled with ad-hoc signing (`codesign -s -`), every rebuild changes the signature hash, causing macOS to prompt again.
-
-**Fix**: Always build with `make app` or `make app-install`. The build script automatically uses a stable local signing certificate if present. Grant each permission once in System Settings.
-
-### 2. "No transcription backend installed"
-Install the backend into the Python environment:
+Start it from the menu-bar app by choosing **Engine: not running — Start**. You can also run:
 
 ```bash
-# Apple Silicon (M1/M2/M3/M4)
-uv tool install --from git+https://github.com/gbrlpzz/transcribe transcribe --with mlx-whisper
-
-# Intel Macs or Linux
-uv tool install --from git+https://github.com/gbrlpzz/transcribe transcribe --with faster-whisper
+transcribe serve
 ```
 
-### 3. Text Is Copied but Not Pasted into Apps
-Auto-pasting synthesizes a `⌘V` keypress, which requires macOS Accessibility authorization.
+The server listens only on `127.0.0.1:8765`.
 
-**Fix**:
-1. Open **System Settings** → **Privacy & Security** → **Accessibility**.
-2. Enable **Transcribe** (for the menu-bar app) and your terminal (for the CLI).
-3. If you prefer manual pasting only, disable auto-paste:
-   ```bash
-   transcribe config set paste false
-   ```
+## The first request is slow
 
-### 4. Menu-Bar App Shows "Engine: Not Running"
-The Swift app searches for the `transcribe` CLI binary in `/opt/homebrew/bin`, `/usr/local/bin`, `~/.local/bin`, and your active `PATH`.
+The first request downloads the `whisper-turbo` weights. The download is about 1.6 GB and happens once. Later requests use the local cache.
 
-**Fix**:
-Ensure `transcribe` is installed globally:
-```bash
-uv tool install --from git+https://github.com/gbrlpzz/transcribe transcribe
-```
-Then click **Engine: Not Running** in the menu-bar app to restart it.
-
-### 5. First Dictation or Model Switch Appears Frozen
-When you first run Transcribe or switch to a new model (e.g. `turbo` or `large-v3-turbo`), Hugging Face downloads the model weights (~1.6 GB) to `~/.cache/huggingface/hub/`. During this one-time initial download, transcription requests wait for the download to complete before responding.
-
-**Fix**: Subsequent dictations are fully offline and respond in ~1.0 second. You can pre-download any model ahead of time:
-```bash
-# Pre-download default large-v3-turbo
-huggingface-cli download mlx-community/whisper-large-v3-turbo
-
-# Pre-download English turbo
-huggingface-cli download mlx-community/whisper-turbo
-```
-
-### 6. Port 8765 Conflict or Stale Engine Process
-If an old engine process is still bound to port 8765 from a previous session, terminate any existing engine instances:
+Check the model cache:
 
 ```bash
-# Kill stale server instances
-pkill -f "transcribe serve"
-
-# Check port 8765 status
-lsof -i :8765
-```
-Then relaunch Transcribe from Spotlight or run `transcribe serve`.
-
-### 7. "Nothing Heard" HUD Warning
-If the HUD shows "Nothing Heard" or the recording is empty:
-- Speak closer to your microphone.
-- Check input levels in **System Settings** → **Sound** → **Input**.
-- If multiple microphones are connected, specify your preferred device index:
-  ```bash
-  ffmpeg -f avfoundation -list_devices true -i ""
-  transcribe config set device 1
-  ```
-
-### 8. Smart Text Replaces Words You Spoke Literally
-Smart text replaces spoken punctuation keywords like "comma", "period", "new line". It uses whole-word boundary matching so normal words ("the period of time") remain untouched.
-
-To disable all smart text replacements:
-```bash
-transcribe config set smart_text false
+transcribe models
+du -sh ~/.cache/huggingface/hub/models--mlx-community--whisper-turbo
 ```
 
-### 9. High Memory Pressure on 8 GB Macs
-If your Mac is under high memory pressure from heavy applications (e.g. IDEs, Docker, browser tabs) and dictation slows down, switch to a lighter model:
+Do not start a second engine process on port `8765`. If an old process is still listening, restart the menu-bar app or stop that process before starting the server manually.
+
+## Transcription fails with an MLX stream error
+
+MLX GPU streams belong to the thread that created them. The current server warms the model and runs inference on one dedicated engine thread. Restart the engine after upgrading MLX:
 
 ```bash
-# Switch to medium (~1.5 GB RAM) or small (~1.0 GB RAM)
-transcribe config set model medium
-# or
-transcribe config set model small
+pkill -f 'transcribe serve --port 8765'
+transcribe serve --port 8765
 ```
 
-### 10. File Locations
-- **Configuration**: `~/Library/Application Support/transcribe/config.json`
-- **Session Recordings & Transcripts**: `~/Library/Application Support/transcribe/sessions/`
-- **Hugging Face Model Cache**: `~/.cache/huggingface/`
+If the error continues, reinstall the supported tool environment and keep the tested MLX versions:
+
+```bash
+uv tool install --force --from git+https://github.com/gbrlpzz/transcribe transcribe --with mlx==0.32.0 --with mlx-whisper==0.4.3
+```
+
+## Finder does not show the Quick Action
+
+Reinstall it:
+
+```bash
+make quick-action-install
+```
+
+Then open Finder, select an audio or video file, and choose **Quick Actions → Transcribe**. The service is Finder-only and accepts audio and movie files.
+
+## The source file disappeared
+
+The app sends `preserve_source: true` for Finder and menu-bar file jobs. The source should remain in its original folder. The transcript is saved beside it as `<file>.md`.
+
+If the source is still moved, verify that the installed app is current:
+
+```bash
+make app-install
+```
+
+## Paste does not work
+
+Run:
+
+```bash
+transcribe doctor
+```
+
+Enable Accessibility for Transcribe in **System Settings → Privacy & Security → Accessibility**. The app opens this page when setup is incomplete.
+
+## The HUD looks stuck
+
+A long file can take time. The file spinner stays visible while the engine works. The live recorder can run at the same time, but final model requests share one warm engine and may wait for the current request.
+
+Use **Esc** or click the active HUD to cancel the live or file job.
+
+## Clean old sessions
+
+Sessions are stored under:
+
+```text
+~/Library/Application Support/transcribe/sessions/
+```
+
+Remove sessions older than the configured TTL:
+
+```bash
+transcribe clean
+```
+
+This does not remove the active model cache or Finder source files.

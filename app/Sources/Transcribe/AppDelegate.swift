@@ -8,16 +8,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hotKey: HotKey?
     private let recorder = Recorder()
     private let pill = DictationPill()
+    private let filePill = DictationPill()
+    private var fileHUDVisible = false
     private var engine: EngineClient!
     private var config = AppConfig.load()
 
-    // state
-    private enum DictationState { case idle, recording, transcribing }
-    private var state: DictationState = .idle
-    private var isCancelled = false
-    // A file request is separate from microphone recording. Keeping an ID lets
-    // us ignore a late HTTP response after the user cancels the file job.
-    private var activeFileRequest: UUID?
+    // Live dictation and file jobs are independent. The engine serializes
+    // inference, but recording and file work can overlap without replacing
+    // each other's state or feedback.
+    private enum LiveState { case idle, recording, transcribing }
+    private var liveState: LiveState = .idle
+    private var liveCancelled = false
+    private var liveRequestID: UUID?
+    private var liveTask: URLSessionDataTask?
+
+    private var fileQueue: [URL] = []
+    private var activeFileURL: URL?
+    private var fileRequestID: UUID?
+    private var fileTask: URLSessionDataTask?
+    private var pendingFileStatuses: [DictationPill.PillState] = []
+    private var appReady = false
+    private var queuedOpenURLs: [URL] = []
     private var levelTimer: Timer?
     private var globalEscapeMonitor: Any?
     private var localEscapeMonitor: Any?
@@ -25,17 +36,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // menu handles
     private var setupItem: NSMenuItem!
     private var engineItem: NSMenuItem!
-    private var modelMenu: NSMenu!
     private var languageMenu: NSMenu!
     private var enginePollTimer: Timer?
 
-    private let modelAliases: [(alias: String, repo: String, note: String)] = [
-        ("turbo", "mlx-community/whisper-turbo", "default — fastest (~1.0s)"),
-        ("large-v3-turbo", "mlx-community/whisper-large-v3-turbo", "multilingual balance"),
-        ("large-v3", "mlx-community/whisper-large-v3", "maximum accuracy"),
-        ("medium", "mlx-community/whisper-medium", "lighter"),
-        ("small", "mlx-community/whisper-small", "lightest footprint"),
-    ]
     private let languages: [(id: String, label: String)] = [
         ("auto", "Auto"), ("en", "English"), ("it", "Italiano"),
         ("de", "Deutsch"), ("fr", "Français"), ("es", "Español"),
@@ -54,11 +57,63 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         enginePollTimer = Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { [weak self] _ in
             self?.engine.health { ok in self?.engineUp = ok }
         }
+        appReady = true
+        let urls = queuedOpenURLs
+        queuedOpenURLs.removeAll()
+        urls.forEach(handleOpenURL)
+        startNextFileIfNeeded()
     }
 
     private func setupPill() {
-        pill.onCancel = { [weak self] in
+        pill.onCancel = { [weak self] _ in
             self?.cancelDictation()
+        }
+        pill.onHidden = { [weak self] in
+            self?.refreshLivePill()
+        }
+        filePill.onCancel = { [weak self] _ in
+            self?.cancelFileTranscription()
+        }
+        filePill.onHidden = { [weak self] in
+            self?.refreshHUD()
+        }
+    }
+
+    // Finder may deliver a file as an open-file event, while the Quick Action
+    // launcher can deliver a transcribe:// URL. Accept both forms and defer
+    // them until the engine client exists when the app is launched cold.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        NSLog("Transcribe: received open URLs (%ld)", urls.count)
+        if !appReady {
+            queuedOpenURLs.append(contentsOf: urls)
+            return
+        }
+        urls.forEach(handleOpenURL)
+    }
+
+    func application(_ application: NSApplication, openFiles filenames: [String]) {
+        NSLog("Transcribe: received open files (%ld)", filenames.count)
+        let urls = filenames.map { URL(fileURLWithPath: $0) }
+        if !appReady {
+            queuedOpenURLs.append(contentsOf: urls)
+        } else {
+            urls.forEach(enqueueFile)
+        }
+        application.reply(toOpenOrPrint: .success)
+    }
+
+    private func handleOpenURL(_ url: URL) {
+        if url.scheme == "transcribe", url.host == "file" {
+            guard let path = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?.first(where: { $0.name == "path" })?.value else {
+                NSLog("Transcribe: file URL had no path")
+                return
+            }
+            enqueueFile(URL(fileURLWithPath: path))
+        } else if url.isFileURL {
+            enqueueFile(url)
+        } else {
+            NSLog("Transcribe: ignoring unsupported URL scheme %@", url.scheme ?? "(none)")
         }
     }
 
@@ -130,19 +185,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(.separator())
 
-        let modelItem = NSMenuItem(title: "Model", action: nil, keyEquivalent: "")
-        modelMenu = NSMenu()
-        for m in modelAliases {
-            let item = NSMenuItem(title: "\(m.alias) — \(m.note)", action: #selector(selectModel(_:)),
-                                  keyEquivalent: "")
-            item.target = self
-            item.representedObject = m.repo
-            item.state = (config.model == m.repo || config.model == m.alias) ? .on : .off
-            modelMenu.addItem(item)
-        }
-        modelItem.submenu = modelMenu
-        menu.addItem(modelItem)
-
         let langItem = NSMenuItem(title: "Language", action: nil, keyEquivalent: "")
         languageMenu = NSMenu()
         for l in languages {
@@ -189,14 +231,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func showIdleIcon() {
         statusItem.button?.image = Self.templateImage("mic")
         statusItem.button?.imagePosition = .imageOnly
-        statusItem.button?.contentTintColor = nil
+        statusItem.button?.contentTintColor = fileHUDVisible ? .systemOrange : nil
         statusItem.button?.title = ""
     }
 
     private func showRecording() {
         statusItem.button?.image = Self.templateImage("mic")
         statusItem.button?.contentTintColor = .systemRed
-        pill.show(.recording)
+        refreshLivePill()
         levelTimer?.invalidate()
         let t = Timer(timeInterval: 0.033, repeats: true) { [weak self] _ in
             self?.pill.updateLevel(self?.recorder.level() ?? 0)
@@ -208,12 +250,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func showTranscribing() {
         levelTimer?.invalidate()
         levelTimer = nil
-        statusItem.button?.contentTintColor = nil
-        pill.show(.transcribing)
+        statusItem.button?.contentTintColor = fileHUDVisible ? .systemOrange : nil
+        refreshLivePill()
     }
 
     private func flashResult(_ text: String) {
-        statusItem.button?.contentTintColor = nil
+        statusItem.button?.contentTintColor = fileHUDVisible ? .systemOrange : nil
+        pill.setPresentation(compact: fileHUDVisible,
+                             horizontalOffset: fileHUDVisible ? -18 : 0)
         pill.show(.result(text))
     }
 
@@ -239,11 +283,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func modelShortName() -> String {
-        let repo = config.model
-        for m in modelAliases where repo == m.repo || repo == m.alias {
-            return m.alias
-        }
-        return repo
+        "turbo"
     }
 
     private func setupHotKey() {
@@ -278,8 +318,56 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Dictation
 
+    private func refreshPill() {
+        refreshHUD()
+    }
+
+    private func refreshLivePill() {
+        refreshHUD()
+    }
+
+    /// Keep the two panels as one centered notch cluster. A file is a large
+    /// pill by itself. Once live dictation joins, the live pill becomes medium
+    /// on the left and the file pill becomes a circular activity indicator on
+    /// the right.
+    private func refreshHUD() {
+        let shouldShowFile = activeFileURL != nil || !pendingFileStatuses.isEmpty
+        fileHUDVisible = shouldShowFile
+        let concurrent = shouldShowFile && liveState != .idle
+        statusItem.button?.contentTintColor = shouldShowFile
+            ? .systemOrange
+            : (liveState == .recording ? .systemRed : nil)
+        statusItem.button?.toolTip = shouldShowFile
+            ? "Transcribe — file transcription in progress"
+            : "Transcribe — tap \(hotKeyLabel()) to start and stop dictation"
+
+        // The offsets keep the entire medium-pill + circle cluster centered.
+        filePill.setPresentation(compact: concurrent,
+                                 circle: concurrent,
+                                 horizontalOffset: concurrent ? 63 : 0)
+        if let file = activeFileURL {
+            filePill.show(.fileTranscribing(file.lastPathComponent))
+        } else if let status = pendingFileStatuses.first {
+            pendingFileStatuses.removeFirst()
+            filePill.show(status)
+        } else {
+            filePill.show(.hidden)
+        }
+
+        pill.setPresentation(compact: shouldShowFile,
+                             horizontalOffset: shouldShowFile ? -18 : 0)
+        switch liveState {
+        case .recording:
+            pill.show(.recording)
+        case .transcribing:
+            pill.show(.transcribing)
+        case .idle:
+            pill.show(.hidden)
+        }
+    }
+
     @objc private func toggleDictation() {
-        switch state {
+        switch liveState {
         case .idle: startDictation()
         case .recording: stopDictation()
         case .transcribing: break
@@ -287,7 +375,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func startDictation() {
-        guard state == .idle else { return }
+        guard liveState == .idle else { return }
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
         case .denied, .restricted:
             presentAlert(title: "Microphone Access Needed",
@@ -298,25 +386,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         default:
             break
         }
-        isCancelled = false
-        state = .recording
+        liveCancelled = false
+        liveState = .recording
         showRecording()
         startEscapeMonitoring()
         do {
             _ = try recorder.start()
             NSSound(named: NSSound.Name("Pop"))?.play()
         } catch {
-            state = .idle
+            liveState = .idle
             stopEscapeMonitoring()
             showIdleIcon()
+            refreshPill()
             presentAlert(title: "Can't Record", message: error.localizedDescription)
         }
     }
 
     private func stopDictation() {
-        guard state == .recording, let url = recorder.currentURL else { return }
-        if isCancelled { return }
-        state = .transcribing
+        guard liveState == .recording, let url = recorder.currentURL else { return }
+        if liveCancelled { return }
+        liveState = .transcribing
         showTranscribing()
         recorder.stop()
         NSSound(named: NSSound.Name("Tink"))?.play()
@@ -324,55 +413,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func cancelDictation() {
-        guard state != .idle else { return }
-        isCancelled = true
+        guard liveState != .idle else { return }
+        liveCancelled = true
+        liveRequestID = nil
+        liveTask?.cancel()
+        liveTask = nil
         levelTimer?.invalidate()
         levelTimer = nil
         stopEscapeMonitoring()
 
-        // File transcription has no recorder to stop. Invalidate its request
-        // token so a response already in flight cannot resurrect the result.
-        if activeFileRequest != nil {
-            activeFileRequest = nil
-            state = .idle
-            showIdleIcon()
-            pill.cancel()
-            NSSound(named: NSSound.Name("Blow"))?.play()
-            return
+        if let url = recorder.currentURL {
+            if recorder.isRecording { recorder.stop() }
+            try? FileManager.default.removeItem(at: url)
         }
 
-        if recorder.isRecording {
-            if let url = recorder.currentURL {
-                try? FileManager.default.removeItem(at: url)
-            }
-            recorder.stop()
-        }
-
-        state = .idle
+        liveState = .idle
         showIdleIcon()
         pill.cancel()
         NSSound(named: NSSound.Name("Blow"))?.play()
     }
 
     private func sendForTranscription(url: URL) {
+        let requestID = UUID()
+        liveRequestID = requestID
         engine.ensureEngineRunning { [weak self] ok in
-            guard let self else { return }
+            guard let self,
+                  self.liveState == .transcribing,
+                  self.liveRequestID == requestID else { return }
             guard ok else {
-                self.state = .idle
+                self.liveRequestID = nil
+                self.liveState = .idle
                 self.stopEscapeMonitoring()
                 self.showIdleIcon()
-                self.presentAlert(title: "Engine Not Found",
-                                  message: "Install the engine first:\n\n    uv tool install transcribe\n\nThen restart Transcribe.")
+                self.pill.show(.error("Engine Offline"))
                 return
             }
             self.engineUp = true
-            self.engine.transcribe(path: url, language: self.config.language) { result in
-                defer {
-                    self.state = .idle
-                    self.stopEscapeMonitoring()
-                }
-                if self.isCancelled {
+            self.liveTask = self.engine.transcribe(path: url, language: self.config.language) { [weak self] result in
+                guard let self,
+                      self.liveRequestID == requestID else { return }
+                self.liveRequestID = nil
+                self.liveTask = nil
+                self.liveState = .idle
+                self.stopEscapeMonitoring()
+
+                if self.liveCancelled {
                     try? FileManager.default.removeItem(at: url)
+                    self.refreshPill()
                     return
                 }
                 switch result {
@@ -392,31 +479,102 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         self.flashResult(text)
                     }
                 case .failure(let error):
-                    if !self.isCancelled {
-                        self.showIdleIcon()
-                        self.pill.show(.error("Failed"))
-                        self.presentAlert(title: "Transcription Failed",
-                                          message: error.localizedDescription)
-                    }
+                    self.showIdleIcon()
+                    self.pill.show(.error("Failed"))
+                    self.presentAlert(title: "Transcription Failed",
+                                      message: error.localizedDescription)
                 }
                 try? FileManager.default.removeItem(at: url)
             }
         }
     }
 
+    private func enqueueFile(_ url: URL) {
+        guard url.isFileURL, FileManager.default.fileExists(atPath: url.path) else {
+            pendingFileStatuses.append(.error("File not found"))
+            refreshPill()
+            return
+        }
+        fileQueue.append(url)
+        startNextFileIfNeeded()
+    }
+
+    private func startNextFileIfNeeded() {
+        guard activeFileURL == nil else {
+            refreshPill()
+            return
+        }
+        guard let url = fileQueue.first else {
+            refreshPill()
+            return
+        }
+        fileQueue.removeFirst()
+        activeFileURL = url
+        let requestID = UUID()
+        fileRequestID = requestID
+        refreshPill()
+
+        engine.ensureEngineRunning { [weak self] ok in
+            guard let self,
+                  self.activeFileURL == url,
+                  self.fileRequestID == requestID else { return }
+            guard ok else {
+                self.finishFile(url: url, requestID: requestID,
+                                result: .failure(NSError(domain: "Transcribe", code: 4,
+                                                          userInfo: [NSLocalizedDescriptionKey: "Engine is not running"])))
+                return
+            }
+            self.engineUp = true
+            self.fileTask = self.engine.transcribe(path: url,
+                                                    language: self.config.language,
+                                                    preserveSource: true) { [weak self] result in
+                self?.finishFile(url: url, requestID: requestID, result: result)
+            }
+        }
+    }
+
+    private func finishFile(url: URL, requestID: UUID,
+                            result: Result<TranscriptionResult, Error>) {
+        guard activeFileURL == url, fileRequestID == requestID else { return }
+        fileTask = nil
+        fileRequestID = nil
+        activeFileURL = nil
+
+        switch result {
+        case .success(let transcription):
+            let text = transcription.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if text.isEmpty {
+                pendingFileStatuses.append(.empty)
+            } else {
+                do {
+                    _ = try writeMarkdown(for: url, text: text)
+                    pendingFileStatuses.append(.fileResult(url.lastPathComponent))
+                } catch {
+                    pendingFileStatuses.append(.error("Could not save file"))
+                }
+            }
+        case .failure:
+            pendingFileStatuses.append(.error("File failed"))
+        }
+        startNextFileIfNeeded()
+    }
+
+    private func cancelFileTranscription() {
+        fileTask?.cancel()
+        fileTask = nil
+        fileRequestID = nil
+        activeFileURL = nil
+        fileQueue.removeAll()
+        pendingFileStatuses.removeAll()
+        refreshHUD()
+        filePill.cancel()
+        NSSound(named: NSSound.Name("Blow"))?.play()
+    }
+
     // MARK: - Actions
 
     @objc private func openSetup() {
         NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
-    }
-
-    @objc private func selectModel(_ sender: NSMenuItem) {
-        guard let repo = sender.representedObject as? String else { return }
-        config.model = repo
-        config.save()
-        for item in modelMenu.items { item.state = .off }
-        sender.state = .on
-        engine.reload { [weak self] ok in self?.engineUp = ok }
     }
 
     @objc private func selectLanguage(_ sender: NSMenuItem) {
@@ -435,76 +593,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func pickFile() {
-        // Keep one transcription at a time. The same HUD is used for dictation
-        // and file work, so overlapping jobs would make its status ambiguous.
-        guard state == .idle, activeFileRequest == nil else { return }
-
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.audio, .movie, .mpeg4Audio, .wav]
         panel.allowsMultipleSelection = false
         panel.message = "Choose an audio file to transcribe locally."
         panel.begin { [weak self] response in
-            guard response == .OK, let url = panel.url, let self else { return }
-
-            let requestID = UUID()
-            self.activeFileRequest = requestID
-            self.isCancelled = false
-            self.state = .transcribing
-            self.showTranscribing()
-
-            self.engine.ensureEngineRunning { [weak self] ok in
-                guard let self, self.activeFileRequest == requestID else { return }
-                guard ok else {
-                    self.activeFileRequest = nil
-                    self.state = .idle
-                    self.showIdleIcon()
-                    self.pill.show(.error("Engine Offline"))
-                    self.presentAlert(title: "Engine Not Found",
-                                      message: "Run `uv tool install transcribe` first.")
-                    return
-                }
-
-                self.engine.transcribe(path: url, language: self.config.language) { [weak self] result in
-                    guard let self, self.activeFileRequest == requestID else { return }
-                    self.activeFileRequest = nil
-                    self.state = .idle
-
-                    switch result {
-                    case .success(let tr):
-                        let text = tr.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                        guard !text.isEmpty else {
-                            self.showIdleIcon()
-                            self.pill.show(.empty)
-                            self.presentAlert(title: "Nothing Heard",
-                                              message: "No speech was detected in the selected file.")
-                            return
-                        }
-
-                        Paste.copyOnly(text)
-                        let outputURL: URL?
-                        do {
-                            outputURL = try self.writeMarkdown(for: url, text: text)
-                        } catch {
-                            outputURL = nil
-                        }
-
-                        self.flashResult(text)
-                        let savedMessage = outputURL.map { "Saved to \($0.path)." }
-                            ?? "The transcript could not be saved beside the audio file."
-                        let alert = NSAlert()
-                        alert.messageText = "Transcription Ready"
-                        alert.informativeText = "\(savedMessage)\n\nThe text was copied to the clipboard."
-                        alert.addButton(withTitle: "OK")
-                        alert.runModal()
-
-                    case .failure(let error):
-                        self.showIdleIcon()
-                        self.pill.show(.error("Failed"))
-                        self.presentAlert(title: "Transcription Failed",
-                                          message: error.localizedDescription)
-                    }
-                }
-            }
+            guard response == .OK, let url = panel.url else { return }
+            self?.enqueueFile(url)
         }
     }
 

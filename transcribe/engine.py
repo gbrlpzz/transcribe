@@ -2,8 +2,8 @@
 
 Two local backends, auto-selected:
 
-- ``mlx``  — mlx-whisper. The default on Apple Silicon: Whisper large-v3-turbo
-  runs at several times real-time with near-large-v3 accuracy.
+- ``mlx``  — mlx-whisper. The default on Apple Silicon: Whisper turbo stays
+  warm for reliable local dictation and file transcription.
 - ``faster`` — faster-whisper (CTranslate2). Fallback for Intel Macs, Linux,
   and any machine where MLX is not available.
 
@@ -23,32 +23,13 @@ from transcribe.audio import audio_to_wav, is_pcm_wav
 # models are cached locally; hide the "Fetching 4 files" hub flash on repeat runs
 os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
 
-# alias -> (mlx repo, faster-whisper repo, languages)
+# Keep one tested model profile. The raw repository path remains accepted for
+# development, but the app and CLI expose only this reliable default.
 MODELS: dict[str, dict[str, str]] = {
     "turbo": {
         "mlx": "mlx-community/whisper-turbo",
         "faster": "Systran/faster-whisper-turbo",
-        "languages": "default — fastest (~1.0s latency)",
-    },
-    "large-v3-turbo": {
-        "mlx": "mlx-community/whisper-large-v3-turbo",
-        "faster": "Systran/faster-whisper-large-v3-turbo",
-        "languages": "multilingual (best accuracy/speed balance)",
-    },
-    "large-v3": {
-        "mlx": "mlx-community/whisper-large-v3",
-        "faster": "Systran/faster-whisper-large-v3",
-        "languages": "multilingual (maximum accuracy, slower)",
-    },
-    "medium": {
-        "mlx": "mlx-community/whisper-medium",
-        "faster": "Systran/faster-whisper-medium",
-        "languages": "multilingual",
-    },
-    "small": {
-        "mlx": "mlx-community/whisper-small",
-        "faster": "Systran/faster-whisper-small",
-        "languages": "multilingual",
+        "languages": "multilingual — tested default",
     },
 }
 
@@ -225,12 +206,8 @@ def detect_system_info() -> dict[str, Any]:
         rec_backend_pkg = "faster-whisper"
         install_cmd = "uv tool install --from git+https://github.com/gbrlpzz/transcribe transcribe --with faster-whisper"
 
-    if ram_gb and ram_gb < 8:
-        rec_model = "small"
-        model_reason = f"Lightweight ({ram_gb} GB RAM available)"
-    else:
-        rec_model = "turbo"
-        model_reason = "Default (fastest ~1.0s response, near-large-v3 accuracy)"
+    rec_model = "turbo"
+    model_reason = "Tested default with one warm local model"
 
     return {
         "is_apple_silicon": is_apple_silicon,

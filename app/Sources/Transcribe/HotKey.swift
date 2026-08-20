@@ -1,8 +1,8 @@
 import Carbon
 import Foundation
 
-/// Global hotkey via the Carbon event API — the same mechanism apps like
-/// commercial dictation software use. Each HotKey instance registers a unique ID and verifies
+/// Global hotkey via the Carbon event API.
+/// Each HotKey instance registers a unique ID and verifies
 /// that received Carbon events match its own registration.
 final class HotKey {
     enum Action {

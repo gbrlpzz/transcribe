@@ -15,7 +15,9 @@ final class DictationPill: NSPanel {
     enum PillState: Equatable {
         case recording
         case transcribing
+        case fileTranscribing(String)
         case result(String)
+        case fileResult(String)
         case empty
         case error(String)
         case cancelled
@@ -24,14 +26,20 @@ final class DictationPill: NSPanel {
 
     private static let pillHeight: CGFloat = 34
     private static let minWidth: CGFloat = 132
+    private static let mediumWidth: CGFloat = 112
     // Keep transparent room around the capsule so its custom shadow is never
     // clipped by the borderless panel's rectangular backing surface.
     private static let shadowPadding: CGFloat = 18
 
-    var onCancel: (() -> Void)?
+    var onCancel: ((PillState) -> Void)?
+    var onHidden: (() -> Void)?
 
     private var currentState: PillState = .hidden
     private var dismissWorkItem: DispatchWorkItem?
+    private var compactMode = false
+    private var circleMode = false
+    private var horizontalOffset: CGFloat = 0
+    private var waveformWidthConstraint: NSLayoutConstraint!
 
     // UI hierarchy
     private let container = PillContainerView()
@@ -46,14 +54,16 @@ final class DictationPill: NSPanel {
     private let waveform = WaveformView()
 
     private let transcribingStack = NSStackView()
-    private let dotsView = DotsView()
+    private let activityIndicator = NSProgressIndicator()
     private let transcribingLabel = NSTextField(labelWithString: "Transcribing…")
 
     private let statusStack = NSStackView()
     private let statusIcon = NSImageView()
     private let statusLabel = NSTextField(labelWithString: "")
 
-    init() {
+    init(compact: Bool = false, circle: Bool = false) {
+        compactMode = compact
+        circleMode = circle
         let initialWidth: CGFloat = 140 + (Self.shadowPadding * 2)
         let initialHeight = Self.pillHeight + (Self.shadowPadding * 2)
         super.init(contentRect: NSRect(x: 0, y: 0, width: initialWidth, height: initialHeight),
@@ -74,6 +84,17 @@ final class DictationPill: NSPanel {
         configureUI()
     }
 
+    /// Set the HUD's role in the notch cluster. Compact live feedback sits
+    /// to the left of the primary file status circle when both are active.
+    func setPresentation(compact: Bool, circle: Bool = false,
+                         horizontalOffset: CGFloat = 0) {
+        self.compactMode = compact
+        self.circleMode = circle
+        self.horizontalOffset = horizontalOffset
+        guard currentState != .hidden else { return }
+        show(currentState)
+    }
+
     // MARK: - View Configuration
 
     private func configureUI() {
@@ -92,7 +113,9 @@ final class DictationPill: NSPanel {
         container.onPillClick = { [weak self] in
             guard let self else { return }
             if self.currentState == .recording || self.currentState == .transcribing {
-                self.onCancel?()
+                self.onCancel?(self.currentState)
+            } else if case .fileTranscribing(_) = self.currentState {
+                self.onCancel?(self.currentState)
             }
         }
         if let root = root as? PillRootView {
@@ -185,6 +208,7 @@ final class DictationPill: NSPanel {
 
         recordingStack.addArrangedSubview(recordingDot)
         recordingStack.addArrangedSubview(waveform)
+        waveformWidthConstraint = waveform.widthAnchor.constraint(equalToConstant: 82)
 
         NSLayoutConstraint.activate([
             recordingStack.centerXAnchor.constraint(equalTo: container.centerXAnchor),
@@ -194,7 +218,7 @@ final class DictationPill: NSPanel {
             recordingDot.widthAnchor.constraint(equalToConstant: 8),
             recordingDot.heightAnchor.constraint(equalToConstant: 8),
 
-            waveform.widthAnchor.constraint(equalToConstant: 82),
+            waveformWidthConstraint,
             waveform.heightAnchor.constraint(equalToConstant: 20),
         ])
     }
@@ -209,13 +233,18 @@ final class DictationPill: NSPanel {
         transcribingStack.alphaValue = 0
         container.addSubview(transcribingStack)
 
-        dotsView.translatesAutoresizingMaskIntoConstraints = false
+        activityIndicator.translatesAutoresizingMaskIntoConstraints = false
+        activityIndicator.style = .spinning
+        activityIndicator.controlSize = .small
+        activityIndicator.isIndeterminate = true
+        activityIndicator.isDisplayedWhenStopped = false
+        activityIndicator.appearance = NSAppearance(named: .vibrantDark)
         transcribingLabel.translatesAutoresizingMaskIntoConstraints = false
         transcribingLabel.font = .systemFont(ofSize: 11, weight: .medium)
         transcribingLabel.textColor = NSColor(white: 0.90, alpha: 1.0)
         transcribingLabel.alignment = .left
 
-        transcribingStack.addArrangedSubview(dotsView)
+        transcribingStack.addArrangedSubview(activityIndicator)
         transcribingStack.addArrangedSubview(transcribingLabel)
 
         NSLayoutConstraint.activate([
@@ -223,8 +252,8 @@ final class DictationPill: NSPanel {
             transcribingStack.centerYAnchor.constraint(equalTo: container.centerYAnchor),
             transcribingStack.heightAnchor.constraint(equalToConstant: Self.pillHeight),
 
-            dotsView.widthAnchor.constraint(equalToConstant: 24),
-            dotsView.heightAnchor.constraint(equalToConstant: 8),
+            activityIndicator.widthAnchor.constraint(equalToConstant: 16),
+            activityIndicator.heightAnchor.constraint(equalToConstant: 16),
         ])
     }
 
@@ -272,7 +301,7 @@ final class DictationPill: NSPanel {
         let visibleFrame = screen.visibleFrame
         let panelWidth = width + (Self.shadowPadding * 2)
         let panelHeight = Self.pillHeight + (Self.shadowPadding * 2)
-        let x = round(screenFrame.midX - panelWidth / 2)
+        let x = round(screenFrame.midX - panelWidth / 2 + horizontalOffset)
 
         let topY: CGFloat
         if screen.safeAreaInsets.top > 0 {
@@ -300,6 +329,7 @@ final class DictationPill: NSPanel {
 
     func show(_ state: PillState) {
         DispatchQueue.main.async { [self] in
+            guard !(state == .hidden && currentState == .hidden && alphaValue == 0) else { return }
             dismissWorkItem?.cancel()
             dismissWorkItem = nil
 
@@ -309,21 +339,71 @@ final class DictationPill: NSPanel {
             switch state {
             case .recording:
                 container.toolTip = "Click to cancel dictation (or press Esc)"
+                recordingStack.edgeInsets = compactMode
+                    ? NSEdgeInsets(top: 0, left: 12, bottom: 0, right: 12)
+                    : NSEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
+                waveformWidthConstraint.constant = compactMode ? 64 : 82
+                transcribingLabel.isHidden = false
+                transcribingStack.edgeInsets = compactMode
+                    ? NSEdgeInsets(top: 0, left: 12, bottom: 0, right: 12)
+                    : NSEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
+                statusLabel.isHidden = circleMode
+                statusStack.edgeInsets = circleMode
+                    ? NSEdgeInsets()
+                    : (compactMode
+                        ? NSEdgeInsets(top: 0, left: 12, bottom: 0, right: 12)
+                        : NSEdgeInsets(top: 0, left: 16, bottom: 0, right: 16))
                 recordingDot.startPulsing()
                 waveform.start()
-                dotsView.stop()
-                let width = max(Self.minWidth, recordingStack.fittingSize.width + 4)
+                stopActivity()
+                let width = circleMode ? Self.pillHeight
+                    : (compactMode ? Self.mediumWidth : max(Self.minWidth, recordingStack.fittingSize.width + 4))
                 transition(toWidth: width,
                            activeView: recordingStack,
                            inactiveViews: [transcribingStack, statusStack],
                            isNewAppearance: previousState == .hidden)
 
             case .transcribing:
+                transcribingLabel.stringValue = "Transcribing…"
+                transcribingLabel.isHidden = circleMode
+                transcribingStack.edgeInsets = circleMode
+                    ? NSEdgeInsets()
+                    : (compactMode
+                        ? NSEdgeInsets(top: 0, left: 12, bottom: 0, right: 12)
+                        : NSEdgeInsets(top: 0, left: 16, bottom: 0, right: 16))
+                statusLabel.isHidden = circleMode
+                statusStack.edgeInsets = circleMode
+                    ? NSEdgeInsets()
+                    : (compactMode
+                        ? NSEdgeInsets(top: 0, left: 12, bottom: 0, right: 12)
+                        : NSEdgeInsets(top: 0, left: 16, bottom: 0, right: 16))
                 container.toolTip = "Click to cancel transcription (or press Esc)"
                 recordingDot.stopPulsing()
                 waveform.stop()
-                dotsView.start()
-                let width = max(Self.minWidth, transcribingStack.fittingSize.width + 4)
+                startActivity()
+                let width = circleMode ? Self.pillHeight
+                    : (compactMode ? Self.mediumWidth : max(Self.minWidth, transcribingStack.fittingSize.width + 4))
+                transition(toWidth: width,
+                           activeView: transcribingStack,
+                           inactiveViews: [recordingStack, statusStack],
+                           isNewAppearance: previousState == .hidden)
+
+            case .fileTranscribing(let fileName):
+                transcribingLabel.stringValue = "Transcribing…"
+                transcribingLabel.isHidden = circleMode
+                transcribingStack.edgeInsets = circleMode
+                    ? NSEdgeInsets()
+                    : NSEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
+                statusLabel.isHidden = circleMode
+                statusStack.edgeInsets = circleMode
+                    ? NSEdgeInsets()
+                    : NSEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
+                container.toolTip = "Click to cancel file transcription: \(fileName)"
+                recordingDot.stopPulsing()
+                waveform.stop()
+                startActivity()
+                let width = circleMode ? Self.pillHeight
+                    : max(Self.minWidth, transcribingStack.fittingSize.width + 4)
                 transition(toWidth: width,
                            activeView: transcribingStack,
                            inactiveViews: [recordingStack, statusStack],
@@ -331,12 +411,44 @@ final class DictationPill: NSPanel {
 
             case .result:
                 container.toolTip = nil
+                statusLabel.isHidden = circleMode
+                statusStack.edgeInsets = circleMode
+                    ? NSEdgeInsets()
+                    : (compactMode
+                        ? NSEdgeInsets(top: 0, left: 12, bottom: 0, right: 12)
+                        : NSEdgeInsets(top: 0, left: 16, bottom: 0, right: 16))
+                transcribingLabel.isHidden = circleMode
+                transcribingStack.edgeInsets = circleMode
+                    ? NSEdgeInsets()
+                    : (compactMode
+                        ? NSEdgeInsets(top: 0, left: 12, bottom: 0, right: 12)
+                        : NSEdgeInsets(top: 0, left: 16, bottom: 0, right: 16))
                 recordingDot.stopPulsing()
                 waveform.stop()
-                dotsView.stop()
+                stopActivity()
                 statusIcon.image = Self.symbol("checkmark.circle.fill", tint: .systemGreen)
                 statusLabel.stringValue = "Transcribed"
-                let width = max(Self.minWidth, statusStack.fittingSize.width + 4)
+                let width = circleMode ? Self.pillHeight
+                    : (compactMode ? Self.mediumWidth : max(Self.minWidth, statusStack.fittingSize.width + 4))
+                transition(toWidth: width,
+                           activeView: statusStack,
+                           inactiveViews: [recordingStack, transcribingStack],
+                           isNewAppearance: previousState == .hidden)
+                scheduleDismiss(after: 1.6)
+
+            case .fileResult:
+                container.toolTip = nil
+                statusLabel.isHidden = circleMode
+                statusStack.edgeInsets = circleMode
+                    ? NSEdgeInsets()
+                    : NSEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
+                recordingDot.stopPulsing()
+                waveform.stop()
+                stopActivity()
+                statusIcon.image = Self.symbol("checkmark.circle.fill", tint: .systemGreen)
+                statusLabel.stringValue = "File transcribed"
+                let width = circleMode ? Self.pillHeight
+                    : max(Self.minWidth, statusStack.fittingSize.width + 4)
                 transition(toWidth: width,
                            activeView: statusStack,
                            inactiveViews: [recordingStack, transcribingStack],
@@ -345,12 +457,19 @@ final class DictationPill: NSPanel {
 
             case .empty:
                 container.toolTip = nil
+                statusLabel.isHidden = circleMode
+                statusStack.edgeInsets = circleMode
+                    ? NSEdgeInsets()
+                    : (compactMode
+                        ? NSEdgeInsets(top: 0, left: 12, bottom: 0, right: 12)
+                        : NSEdgeInsets(top: 0, left: 16, bottom: 0, right: 16))
                 recordingDot.stopPulsing()
                 waveform.stop()
-                dotsView.stop()
+                stopActivity()
                 statusIcon.image = Self.symbol("mic.slash.fill", tint: NSColor(white: 0.65, alpha: 1.0))
                 statusLabel.stringValue = "Nothing Heard"
-                let width = max(Self.minWidth, statusStack.fittingSize.width + 4)
+                let width = circleMode ? Self.pillHeight
+                    : (compactMode ? Self.mediumWidth : max(Self.minWidth, statusStack.fittingSize.width + 4))
                 transition(toWidth: width,
                            activeView: statusStack,
                            inactiveViews: [recordingStack, transcribingStack],
@@ -359,12 +478,19 @@ final class DictationPill: NSPanel {
 
             case .error(let msg):
                 container.toolTip = nil
+                statusLabel.isHidden = circleMode
+                statusStack.edgeInsets = circleMode
+                    ? NSEdgeInsets()
+                    : (compactMode
+                        ? NSEdgeInsets(top: 0, left: 12, bottom: 0, right: 12)
+                        : NSEdgeInsets(top: 0, left: 16, bottom: 0, right: 16))
                 recordingDot.stopPulsing()
                 waveform.stop()
-                dotsView.stop()
+                stopActivity()
                 statusIcon.image = Self.symbol("exclamationmark.circle.fill", tint: .systemOrange)
                 statusLabel.stringValue = msg.isEmpty ? "Failed" : msg
-                let width = max(Self.minWidth, statusStack.fittingSize.width + 4)
+                let width = circleMode ? Self.pillHeight
+                    : (compactMode ? Self.mediumWidth : max(Self.minWidth, statusStack.fittingSize.width + 4))
                 transition(toWidth: width,
                            activeView: statusStack,
                            inactiveViews: [recordingStack, transcribingStack],
@@ -378,6 +504,14 @@ final class DictationPill: NSPanel {
                 dismiss()
             }
         }
+    }
+
+    private func startActivity() {
+        activityIndicator.startAnimation(nil)
+    }
+
+    private func stopActivity() {
+        activityIndicator.stopAnimation(nil)
     }
 
     func updateLevel(_ value: Float) {
@@ -441,7 +575,7 @@ final class DictationPill: NSPanel {
     private func cancelDismiss() {
         recordingDot.stopPulsing()
         waveform.stop()
-        dotsView.stop()
+        stopActivity()
         container.toolTip = nil
 
         // Swift upward glide into the notch aperture
@@ -455,13 +589,14 @@ final class DictationPill: NSPanel {
             self.orderOut(nil)
             self.container.layer?.setAffineTransform(.identity)
             self.currentState = .hidden
+            self.onHidden?()
         })
     }
 
     private func dismiss() {
         recordingDot.stopPulsing()
         waveform.stop()
-        dotsView.stop()
+        stopActivity()
         container.toolTip = nil
 
         NSAnimationContext.runAnimationGroup({ ctx in
@@ -474,6 +609,7 @@ final class DictationPill: NSPanel {
             self.orderOut(nil)
             self.container.layer?.setAffineTransform(.identity)
             self.currentState = .hidden
+            self.onHidden?()
         })
     }
 
@@ -734,79 +870,6 @@ final class WaveformView: NSView {
             path.fill()
 
             x += barW + gap
-        }
-    }
-}
-
-// MARK: - Undulating Transcribing Dots
-
-final class DotsView: NSView {
-    private var dotLayers: [CALayer] = []
-    private let dotCount = 3
-    private let diameter: CGFloat = 4.5
-    private let gap: CGFloat = 4.5
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        wantsLayer = true
-        makeDots()
-    }
-
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        wantsLayer = true
-        makeDots()
-    }
-
-    private func makeDots() {
-        for _ in 0..<dotCount {
-            let dot = CALayer()
-            dot.backgroundColor = NSColor(white: 0.95, alpha: 1.0).cgColor
-            dot.opacity = 0.35
-            layer?.addSublayer(dot)
-            dotLayers.append(dot)
-        }
-    }
-
-    override func layout() {
-        super.layout()
-        let total = CGFloat(dotCount) * diameter + CGFloat(dotCount - 1) * gap
-        for (i, dot) in dotLayers.enumerated() {
-            dot.cornerRadius = diameter / 2
-            dot.frame = CGRect(x: (bounds.width - total) / 2 + CGFloat(i) * (diameter + gap),
-                               y: (bounds.height - diameter) / 2,
-                               width: diameter, height: diameter)
-        }
-    }
-
-    func start() {
-        for (i, dot) in dotLayers.enumerated() {
-            if dot.animation(forKey: "wave") != nil { continue }
-
-            let group = CAAnimationGroup()
-            group.duration = 0.95
-            group.repeatCount = .infinity
-            group.autoreverses = true
-            group.beginTime = CACurrentMediaTime() + Double(i) * 0.18
-
-            let pulse = CABasicAnimation(keyPath: "opacity")
-            pulse.fromValue = 0.35
-            pulse.toValue = 1.0
-
-            let lift = CABasicAnimation(keyPath: "transform.translation.y")
-            lift.fromValue = 0
-            lift.toValue = -2.0
-
-            group.animations = [pulse, lift]
-            group.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            dot.add(group, forKey: "wave")
-        }
-    }
-
-    func stop() {
-        for dot in dotLayers {
-            dot.removeAnimation(forKey: "wave")
-            dot.opacity = 0.35
         }
     }
 }

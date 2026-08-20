@@ -1,6 +1,6 @@
 # Transcribe
 
-**Local dictation and audio transcription for macOS — with a Prime Agent skill.** Tap a global hotkey, speak, and tap again. Whisper runs on your Mac and types your words into the focused app. Audio files and transcripts are wiped automatically after 48 hours. Nothing leaves your machine.
+**Local dictation and audio transcription for macOS.** Press a global hotkey, speak, and Transcribe types the result into the focused app. Audio stays on your Mac.
 
 ```
 ┌─────────────────────────────┐     ┌──────────────────────────┐
@@ -11,181 +11,137 @@
                ▼                                  ▼
         ┌───────────────────────────────────────────────┐
         │  Local Engine Server (127.0.0.1:8765)         │
-        │  Whisper turbo (default) · MLX (Apple Silicon)│
-        │  faster-whisper fallback · Smart text · TTL   │
-        │  Automatic session cleanup (default: 48 h)    │
+        │  One warm Whisper turbo model · MLX           │
+        │  Local storage · smart text · TTL cleanup     │
         └───────────────────────────────────────────────┘
 ```
 
 ## Features
 
-- **100% Private**: Whisper runs on-device. No cloud APIs, no telemetry, no subscriptions, no accounts.
-- **Instant & Accurate**: `whisper-turbo` by default — sub-second ~1.0s response latency with near-large-v3 accuracy.
-- **Apple HIG Notch HUD**: Floating obsidian frosted-glass capsule anchored dead-center under the MacBook notch or menu bar. Features a 60 FPS live waveform visualizer, pulsing recording beacon, undulating loading dots, and semantic status transitions.
-- **Tap-to-Toggle**: Tap `⌃␣` (Control+Space) once to start speaking, tap again to finish. No awkward press-and-hold.
-- **Prime Agent Skill**: Ships with an installable agent skill so Prime Agent can transcribe files and dictate locally without cloud fallbacks.
-- **Self-Cleaning**: Every audio recording and transcript is stored in a session folder and deleted automatically after the configured TTL (default: 48 hours).
+- **Local and private**: Speech recognition runs on the Mac. The engine binds to `127.0.0.1`.
+- **One tested model**: `whisper-turbo` stays warm for reliable dictation and file transcription.
+- **Native menu-bar app**: Global hotkey, paste support, microphone recording, and setup checks.
+- **Notch HUD**: Apple-style status feedback with recording, transcription, result, error, and cancel states.
+- **Concurrent feedback**: Live dictation and file transcription have separate HUD states. A file is a large pill alone. During overlap, live dictation is on the left and the file is a spinner circle on the right.
+- **Finder Quick Action**: Transcribe audio or video files from Finder. The source file stays in place and `<file>.md` is saved beside it.
+- **Prime Agent skill**: Optional local transcription tools for Prime Agent.
+- **Automatic cleanup**: Session audio and transcripts are removed after the configured TTL. The default is 48 hours.
 
----
-
-## System Requirements
+## Requirements
 
 | Component | Minimum | Recommended |
 |---|---|---|
-| **Mac Model** | Apple Silicon (M1+) or Intel Mac (x86_64) | Apple Silicon (M1/M2/M3/M4, Pro, Max, Ultra) |
-| **Unified Memory / RAM** | 8 GB | 16 GB or more |
-| **Operating System** | macOS 14.0+ (Sonoma or Sequoia) | macOS 14.0+ |
-| **Free Storage** | ~3 GB (for engine + default model weights) | 5 GB+ |
-| **Tools** | [Homebrew](https://brew.sh), [uv](https://docs.astral.sh/uv/), `ffmpeg` | Homebrew, `uv`, `ffmpeg` |
+| Mac | Apple Silicon M1+ or Intel Mac | Apple Silicon |
+| Memory | 8 GB | 16 GB or more |
+| macOS | 14.0 | Latest supported macOS |
+| Storage | About 3 GB | 5 GB free |
+| Tools | `uv`, `ffmpeg` | Homebrew, `uv`, `ffmpeg` |
 
-### Model Memory & Resource Guide
+### Model and memory
 
-Whisper stays resident in memory so dictation responds in 1–2 seconds. Choose a model that fits your available RAM:
+Transcribe keeps one `whisper-turbo` model warm. The model weights use about 1.6 GB on disk. A clean-process test on a 16 GB Apple Silicon Mac used about 2.6 GB physical memory for a 51-second file. Long files can use more working memory.
 
-| Model Alias | Disk Size | Active RAM | Processing Speed (MLX) | Recommended Machine |
-|---|---|---|---|---|
-| `small` | ~470 MB | ~1.0 GB | ~15× real-time | 8 GB RAM machines under heavy multitasking |
-| `medium` | ~1.5 GB | ~2.0 GB | ~10× real-time | 8 GB or 16 GB machines |
-| `turbo` | ~800 MB | ~1.5 GB | ~12× real-time | English-only fast transcription |
-| `large-v3-turbo` *(default)* | ~1.6 GB | ~2.2 GB | ~8× real-time | 8 GB or 16 GB+ machines (best overall) |
-| `large-v3` | ~3.0 GB | ~4.5 GB | ~3× real-time | 16 GB+ machines (maximum accuracy) |
-
----
+The app uses the MLX backend on Apple Silicon. The `faster-whisper` backend remains available for Intel Macs and other systems.
 
 ## Installation
 
-Requires macOS 14+ on an Apple Silicon Mac (or Intel Mac using faster-whisper fallback), and [Homebrew](https://brew.sh).
+Install `ffmpeg` and the local engine:
 
 ```bash
-# 1. Install ffmpeg and the transcribe engine CLI
 brew install ffmpeg
-
-# For Apple Silicon (M1/M2/M3/M4):
-uv tool install --from git+https://github.com/gbrlpzz/transcribe transcribe --with mlx-whisper
-
-# Or for Intel Macs / Linux:
-uv tool install --from git+https://github.com/gbrlpzz/transcribe transcribe --with faster-whisper
-
-# 2. Build and install the native menu-bar app
-git clone https://github.com/gbrlpzz/transcribe.git && cd transcribe
-make app-install          # Builds and copies Transcribe.app to /Applications
-
-# 3. Verify setup
-transcribe doctor
-
-# 4. (Optional) Install the Prime Agent skill
-bash <(curl -fsSL https://raw.githubusercontent.com/gbrlpzz/transcribe/main/scripts/install-skill.sh)
+uv tool install --from git+https://github.com/gbrlpzz/transcribe transcribe --with mlx==0.32.0 --with mlx-whisper==0.4.3
 ```
 
-The first dictation downloads the default model (~1.6 GB) to `~/.cache/huggingface/`. Subsequent dictations run offline.
+For Intel Macs or other systems without MLX:
 
-> On first launch, macOS will prompt for **Microphone** access (to record audio) and **Accessibility** access (to paste text into active apps).
+```bash
+uv tool install --from git+https://github.com/gbrlpzz/transcribe transcribe --with faster-whisper
+```
 
----
+Build and install the menu-bar app:
 
-## Usage
+```bash
+git clone https://github.com/gbrlpzz/transcribe.git
+cd transcribe
+make app-install
+```
 
-### 1. Menu-Bar App
-
-Launch **Transcribe** from Spotlight or `/Applications/Transcribe.app`. A microphone icon appears in the menu bar.
-
-- **Start/Stop Dictation**: Tap `⌃␣` (Control+Space). Speak, then tap `⌃␣` again. The transcribed text is pasted into your active text field.
-- **Notch HUD**: While recording, an obsidian glass capsule appears under your screen's notch or menu bar displaying a 60 FPS live audio waveform. It transitions to transcribing dots, displays a checkmark confirmation, and fades away automatically.
-- **Cancel / Discard Anytime**:
-  - **Press `Esc` (Escape)**: Intercepts and consumes the Escape key so your underlying terminal, IDE, or Prime Agent session is untouched. Discards audio immediately.
-  - **Click the HUD**: Click or tap the floating notch capsule to discard recording or cancel transcription instantly.
-- **Menu Bar Controls**: Click the menu-bar icon to switch **Model**, select **Language**, open **Transcribe File…**, or run **Clean Up Old Recordings**.
-
-### Finder Quick Action
-
-Install it once with:
+Install the Finder Quick Action:
 
 ```bash
 make quick-action-install
 ```
 
-Then right-click an audio or video file in Finder and choose **Quick Actions → Transcribe**. Transcribe shows start and completion notifications, saves `<file>.md` beside the source, and copies the text to the clipboard.
-
-### 2. Command-Line Interface (CLI)
+Optional Prime Agent skill:
 
 ```bash
-# Dictate from terminal (press Enter to start and stop)
+bash <(curl -fsSL https://raw.githubusercontent.com/gbrlpzz/transcribe/main/scripts/install-skill.sh)
+```
+
+The first run downloads the model to `~/.cache/huggingface/hub/`. Later runs work offline. macOS asks for Microphone and Accessibility access on first use.
+
+## Usage
+
+### Menu-bar app
+
+Launch `/Applications/Transcribe.app`. A microphone icon appears in the menu bar.
+
+- Press `⌃␣` to start dictation.
+- Press `⌃␣` again to stop and transcribe.
+- Press `Esc` or click the HUD to cancel.
+- Use **Transcribe File…** to choose an audio or video file.
+- Use **Clean Up Old Recordings** to remove sessions older than the TTL.
+
+The result is pasted into the focused app. File transcription also writes a Markdown file beside the source.
+
+### Finder Quick Action
+
+Right-click an audio or video file in Finder and choose **Quick Actions → Transcribe**. The source stays in its original folder. The transcript is written beside it as `<file>.md`.
+
+### Command line
+
+```bash
+# Dictate from the terminal
 transcribe
 
-# Transcribe one or more audio files
+# Transcribe files
 transcribe file meeting.m4a
 transcribe file interview.mp3 notes.wav --language it
 
-# Start the local engine server manually (the app starts this automatically)
+# Run or inspect the local engine
 transcribe serve
+transcribe doctor
+transcribe models
 
-# Clean up sessions older than the TTL
+# Clean sessions older than the configured TTL
 transcribe clean
 
-# Change configuration settings
-transcribe config set model large-v3
+# Change local settings
 transcribe config set language en
 transcribe config set hotkey "ctrl+space"
 transcribe config set cleanup_ttl_hours 24
-
-# Diagnostics and model information
-transcribe doctor
-transcribe models
 ```
 
-### 3. Prime Agent Skill (Optional)
-
-In your Prime Agent session or Python scripts:
+### Prime Agent skill
 
 ```python
 import transcribe_skill
 
-# Transcribe an audio recording
 result = await transcribe_skill.transcribe_audio("interview.m4a")
 print(result["text"])
-print(f"Detected language: {result['language']} via {result['model']}")
+print(result["language"])
 
-# Interactive dictation
 await transcribe_skill.dictate()
-
-# Trigger session cleanup
 await transcribe_skill.clean()
 ```
 
----
-
-## Models
-
-| Alias | Size | Languages | Performance | Recommended For |
-|---|---|---|---|---|
-| `large-v3-turbo` *(default)* | ~1.6 GB | Multilingual | ~8× real-time on MLX | Best overall balance of speed and accuracy |
-| `large-v3` | ~3.0 GB | Multilingual | ~3× real-time on MLX | Maximum accuracy for complex audio |
-| `medium` | ~1.5 GB | Multilingual | ~10× real-time on MLX | Lightweight multilingual tasks |
-| `small` | ~470 MB | Multilingual | ~15× real-time on MLX | Minimal disk and memory footprint |
-| `turbo` | ~800 MB | English only | ~12× real-time on MLX | Fastest English-only dictation |
-
-Set your model via `transcribe config set model <alias>` or the app menu. See [docs/MODELS.md](docs/MODELS.md) for details.
-
----
-
-## Privacy and Storage
-
-1. **Local-Only**: Speech recognition runs entirely on your Mac. The HTTP server binds strictly to `127.0.0.1`.
-2. **Session Storage**: Recordings and transcripts are saved to `~/Library/Application Support/transcribe/sessions/YYYYMMDD/<id>.wav` and `.json`.
-3. **Auto-Cleanup**: Sessions are permanently deleted after `cleanup_ttl_hours` (default: 48 hours).
-4. **Immediate Deletion**: The menu-bar app deletes temporary WAV recordings immediately upon transcription completion. Set `cleanup_ttl_hours 0` to delete all session files immediately.
-
-See [docs/PRIVACY.md](docs/PRIVACY.md) for full details.
-
----
-
 ## Configuration
 
-Configuration is stored at `~/Library/Application Support/transcribe/config.json` and shared between the Swift menu-bar app and Python engine:
+Configuration is stored at `~/Library/Application Support/transcribe/config.json`:
 
 ```json
 {
-  "model": "mlx-community/whisper-large-v3-turbo",
+  "model": "turbo",
   "language": "auto",
   "backend": "auto",
   "paste": true,
@@ -196,35 +152,42 @@ Configuration is stored at `~/Library/Application Support/transcribe/config.json
 }
 ```
 
----
+The release profile uses the tested `turbo` model and one warm engine process. The engine accepts a raw model repository path for development, but other model profiles are not part of the supported app configuration.
 
-## Repository Structure
+## Privacy and storage
+
+1. Speech recognition runs locally.
+2. The HTTP server listens only on `127.0.0.1`.
+3. Sessions are stored under `~/Library/Application Support/transcribe/sessions/`.
+4. Cleanup removes sessions older than `cleanup_ttl_hours`.
+5. The menu-bar app removes temporary microphone recordings after transcription.
+6. Finder source files are preserved. Their Markdown output is written beside them.
+
+See [docs/PRIVACY.md](docs/PRIVACY.md).
+
+## Repository structure
 
 ```
 transcribe/
-├── app/               # Native Swift menu-bar app (AppKit, Carbon, Notch HUD)
-├── transcribe/        # Python engine (MLX Whisper, faster-whisper, storage, CLI, HTTP server)
-├── skill/             # Prime Agent skill (transcribe_skill.py, SKILL.md)
-├── docs/              # In-depth guides (Architecture, Privacy, Models, Troubleshooting)
-├── tests/             # Unit and integration tests
-├── Makefile           # Build and test orchestration
-└── pyproject.toml     # Python packaging and dependencies
+├── app/               # Native macOS menu-bar app
+├── transcribe/        # Local Python engine, CLI, server, and storage
+├── skill/             # Optional Prime Agent skill
+├── docs/              # Architecture, privacy, model, and troubleshooting docs
+├── tests/             # Python tests
+├── Makefile           # Build, test, and install commands
+└── pyproject.toml     # Python package metadata
 ```
-
----
 
 ## Development
 
 ```bash
-make venv         # Create virtualenv and install dependencies
-make test         # Run pytest suite
-make app          # Build native Swift app binary (app/dist/Transcribe.app)
-make app-install  # Build and install to /Applications/Transcribe.app
-make doctor       # Run system diagnostics
+make venv
+make test
+make app
+make app-install
+make doctor
 ```
-
----
 
 ## License
 
-MIT — see [LICENSE](LICENSE). Runtime dependencies: [mlx-whisper](https://github.com/ml-explore/mlx-examples) and [faster-whisper](https://github.com/SYSTRAN/faster-whisper) — see [NOTICE](NOTICE).
+MIT. See [NOTICE](NOTICE) for third-party runtime and model attributions.

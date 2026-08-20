@@ -1,42 +1,45 @@
-# Privacy and Data Retention
+# Privacy and data retention
 
-Transcribe is local-first software. All voice processing, speech recognition, and file storage occur strictly on your physical machine.
+Transcribe runs locally. Speech recognition and file processing happen on the Mac.
 
----
+## Local processing
 
-## 1. On-Device Execution
+- The engine listens only on `127.0.0.1:8765`.
+- Audio is not sent to a cloud service.
+- There is no analytics or tracking code.
+- The model is downloaded once from the model registry. After that, inference works offline.
 
-- **Zero Cloud Reliance**: Audio data is never uploaded to any remote server or third-party service.
-- **Localhost Isolation**: The internal engine server binds exclusively to loopback address `127.0.0.1:8765` and rejects non-local connections.
-- **No Telemetry**: There is no analytics, tracking, or network telemetry code.
-- **Offline Operation**: Model weights are downloaded once from Hugging Face during initial setup. Afterward, dictation and transcription operate entirely offline.
+## Stored data
 
----
+Microphone dictation creates a temporary WAV file and a session record under:
 
-## 2. Storage and Automatic Cleanup
+```text
+~/Library/Application Support/transcribe/sessions/YYYYMMDD/
+```
 
-Every dictation and file transcription generates two session artifacts:
-1. `~/Library/Application Support/transcribe/sessions/YYYYMMDD/<id>.wav` — raw 16 kHz audio.
-2. `~/Library/Application Support/transcribe/sessions/YYYYMMDD/<id>.json` — transcript text and metadata (model, language, duration, timestamp).
+A session can contain:
 
-### Time-to-Live (TTL) Policy
-- Sessions are **automatically deleted after 48 hours** (`cleanup_ttl_hours: 48.0`).
-- Cleanup runs automatically:
-  - On every CLI command execution.
-  - On engine server startup.
-  - After every dictation completes.
-  - When selecting **Clean Up Old Recordings** in the menu-bar app.
+- The temporary WAV recording.
+- The transcript and metadata in a JSON file.
 
-### Immediate Deletion Mode
-- The Swift menu-bar app deletes its own temporary WAV file immediately after transcribing.
-- To disable session retention completely and delete records immediately upon completion:
-  ```bash
-  transcribe config set cleanup_ttl_hours 0
-  ```
+The menu-bar app removes its temporary microphone WAV after transcription. The engine removes expired session records according to `cleanup_ttl_hours`, which defaults to 48 hours.
 
----
+Finder and menu-bar file transcription preserve the selected source file. Finder output is written as `<file>.md` beside the source. The source is not moved into the session folder.
 
-## 3. macOS Permissions
+Run cleanup manually:
 
-- **Microphone**: Used exclusively while actively dictating (between start and stop hotkey taps).
-- **Accessibility**: Used only to emit synthetic `⌘V` key events for pasting into your focused application. If disabled, Transcribe copies text to the pasteboard without pasting.
+```bash
+transcribe clean
+```
+
+Set the TTL to zero to remove session data after completion:
+
+```bash
+transcribe config set cleanup_ttl_hours 0
+```
+
+## macOS permissions
+
+- **Microphone**: Used while dictation is recording.
+- **Accessibility**: Used to paste text into the focused app. If it is unavailable, the result is still copied to the pasteboard.
+- **Apple Events**: Used by the paste operation to send `⌘V`.

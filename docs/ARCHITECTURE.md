@@ -1,59 +1,73 @@
 # Architecture
 
-Transcribe consists of a Python engine server, a native macOS Swift menu-bar app, an optional Prime Agent skill, and a command-line interface. All components communicate locally over localhost (`127.0.0.1:8765`).
+Transcribe has four local parts:
 
+1. A native macOS menu-bar app.
+2. A Python engine server.
+3. A command-line interface.
+4. An optional Prime Agent skill.
+
+All communication stays on `127.0.0.1:8765`.
+
+```text
+Menu-bar app ── POST /transcribe ──▶ Python engine
+     │                                   │
+     │                                   ├── one warm turbo model
+     │                                   ├── MLX on Apple Silicon
+     │                                   └── session storage with TTL cleanup
+     │
+     ├── microphone recorder
+     ├── Notch HUD
+     ├── paste support
+     └── Finder file events
+
+CLI and Prime Agent skill ──────────────▶ same engine server
 ```
-┌───────────────────────────┐     WAV (16 kHz mono)     ┌───────────────────────────┐
-│  Menu-bar App (Swift)     │ ────────────────────────▶ │  Engine Server (Python)   │
-│  • Global hotkey          │     POST /transcribe      │  • 127.0.0.1:8765         │
-│  • Notch HUD pill         │ ◀──────────────────────── │  • Whisper turbo (default)│
-│  • Paste / Clipboard      │     {"text": "..."}       │  • MLX / faster-whisper   │
-└───────────────────────────┘                           └─────────────┬─────────────┘
-                                                                      │
-┌───────────────────────────┐     CLI commands                        │ Sessions (WAV + JSON)
-│  CLI (Python)             │ ────────────────────────────────────────┤ (TTL auto-cleanup)
-│  transcribe file/listen   │                                         │
-└───────────────────────────┘                                         ▼
-┌───────────────────────────┐                          ~/Library/Application Support/
-│  Prime Agent Skill        │                           transcribe/sessions/
-│  transcribe_skill.py      │
-└───────────────────────────┘
-```
 
----
+## Core components
 
-## Core Components
-
-| Module | Location | Responsibility |
+| Component | Location | Responsibility |
 |---|---|---|
-| `DictationPill` | `app/Sources/Transcribe/DictationPill.swift` | Floating obsidian frosted-glass HUD anchored under the screen notch. Renders 60 FPS live waveform, transcribing dots, status checkmarks, and interactive click-to-cancel motion. |
-| `Recorder` | `app/Sources/Transcribe/Recorder.swift` | Captures microphone input at 16 kHz mono 16-bit PCM WAV. Exposes live metering levels to the HUD. |
-| `EngineClient` | `app/Sources/Transcribe/EngineClient.swift` | Manages the background engine process lifecycle and sends HTTP requests to `127.0.0.1:8765`. |
-| `Paste` | `app/Sources/Transcribe/Paste.swift` | Copies text to pasteboard and synthesizes `⌘V` key events via macOS Accessibility. |
-| `HotKey` | `app/Sources/Transcribe/HotKey.swift` | Global tap-to-toggle keyboard shortcut listener using the Carbon Event Manager API. |
-| `Audio` | `transcribe/audio.py` | CLI recording via ffmpeg AVFoundation input. Captures 16 kHz mono WAV with silence trimming. |
-| `Engine` | `transcribe/engine.py` | Whisper model registry and inference execution. Routes to `mlx-whisper` on Apple Silicon or `faster-whisper` on Intel. |
-| `SmartText` | `transcribe/smarttext.py` | Spoken punctuation and editing post-processor ("comma" → `,`, "new line" → `
-`, "delete that" → removes prior word). |
-| `Storage` | `transcribe/storage.py` | Manages session persistence and time-to-live (TTL) automatic file deletion. |
-| `Server` | `transcribe/server.py` | `ThreadingHTTPServer` exposing `/health`, `/transcribe`, and `/reload`. Keeps model loaded in RAM for fast dictation responses. |
-| `CLI` | `transcribe/cli.py` | Tyro CLI interface exposing commands (`listen`, `file`, `serve`, `clean`, `config`, `models`, `doctor`). |
+| `DictationPill` | `app/Sources/Transcribe/DictationPill.swift` | Displays recording, transcription, result, error, and cancellation states. Uses a native macOS spinner for indeterminate work. |
+| `Recorder` | `app/Sources/Transcribe/Recorder.swift` | Captures 16 kHz mono PCM WAV audio and exposes input levels. |
+| `EngineClient` | `app/Sources/Transcribe/EngineClient.swift` | Starts the local engine and sends transcription requests. |
+| `AppDelegate` | `app/Sources/Transcribe/AppDelegate.swift` | Coordinates live dictation, Finder files, queueing, HUD layout, cancellation, and output. |
+| `HotKey` | `app/Sources/Transcribe/HotKey.swift` | Registers the global tap-to-toggle shortcut through Carbon. |
+| `Paste` | `app/Sources/Transcribe/Paste.swift` | Copies text and sends `⌘V` through macOS Accessibility. |
+| `Engine` | `transcribe/engine.py` | Loads the tested `turbo` model and selects MLX or the fallback backend. |
+| `Server` | `transcribe/server.py` | Exposes `/health`, `/transcribe`, and `/reload`. Runs warm-up and inference on one dedicated engine thread. |
+| `Storage` | `transcribe/storage.py` | Stores sessions and removes expired data. |
+| `CLI` | `transcribe/cli.py` | Provides dictation, file, server, cleanup, configuration, and diagnostics commands. |
 
----
+## Inference and concurrency
 
-## Dictation Data Flow
+The engine keeps one model warm. MLX GPU streams are thread-local, so warm-up and inference run on the same dedicated thread.
 
-1. **Start**: The user taps `⌃␣`. `HotKey` detects the keypress, `Recorder` starts writing 16 kHz PCM WAV, and `DictationPill` drops down from the notch displaying a 60 FPS live audio waveform.
-2. **Stop**: The user taps `⌃␣` again. `Recorder` stops writing audio and `DictationPill` morphs into an undulating loading indicator.
-3. **Inference**: `EngineClient` posts the temporary WAV file path to `http://127.0.0.1:8765/transcribe`.
-4. **Smart Text**: The engine transcribes audio using the warm Whisper model in memory, applies smart punctuation rules, saves a session record, and returns the final text payload.
-5. **Output**: `Paste` places the text on the macOS pasteboard and emits a synthetic `⌘V` key event. `DictationPill` shows a green checkmark confirmation and fades out after 1.6 seconds.
-6. **Cleanup**: The Swift app deletes the temporary recording WAV immediately. The engine session record expires after the configured TTL (default: 48 hours).
+The app keeps live and file state separate:
 
----
+- Live recording can continue while a file is being transcribed.
+- File jobs are queued and cancellable.
+- The HUD shows a large file pill alone.
+- During overlap, the live pill is medium and left-aligned. The file becomes a spinner circle on the right.
+- Model requests remain serialized. This avoids a second model copy and limits memory pressure.
 
-## Design Principles
+## Data flow
 
-- **Persistent In-Memory Model**: The model stays loaded in unified memory on Apple Silicon. Dictation round-trips take ~1–2 seconds instead of restarting the Python runtime each time.
-- **Local Path Sharing**: The front-end app and engine server share the local filesystem under the same user account. The app passes local file paths rather than streaming large audio payloads over HTTP sockets.
-- **Unified Configuration**: Swift (`AppConfig`) and Python (`Config`) read and write the exact same JSON schema at `~/Library/Application Support/transcribe/config.json`.
+1. The user starts dictation with the global hotkey.
+2. The app records a temporary 16 kHz WAV file.
+3. The app sends its local path to `/transcribe`.
+4. The engine transcribes the file with the warm model.
+5. The engine stores a session record and returns text.
+6. Live text is pasted into the focused app.
+7. The app removes temporary microphone recordings.
+8. Finder file requests set `preserve_source: true` and write `<file>.md` beside the original.
+
+## Configuration
+
+Swift and Python share this file:
+
+```text
+~/Library/Application Support/transcribe/config.json
+```
+
+The release profile uses the `turbo` model, the selected language, the local port, paste settings, and the session cleanup TTL.

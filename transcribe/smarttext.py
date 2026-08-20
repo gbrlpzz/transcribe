@@ -1,4 +1,4 @@
-"""Smart text — spoken-punctuation post-processing (dictation-style).
+"""Smart text — spoken-punctuation post-processing for dictation.
 
 Whisper is very good at words but less reliable at commas, quotes and
 structure. Smart text fixes the common cases: say "comma" and you get a comma,

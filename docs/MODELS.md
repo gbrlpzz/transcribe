@@ -1,75 +1,55 @@
-# Models and Backends
+# Model and backend
 
-Transcribe supports OpenAI Whisper models optimized for Apple Silicon (MLX) and standard CPU/CUDA environments (faster-whisper).
+Transcribe ships one tested model profile: `turbo`.
 
----
+The goal is simple behavior and predictable memory use. The app keeps one model warm. It does not load a second model for file jobs or live dictation.
 
-## Inference Backends
+## Default profile
 
-| Backend | Engine | Platform | Notes |
-|---|---|---|---|
-| `mlx` *(default)* | [mlx-whisper](https://github.com/ml-explore/mlx-examples/tree/main/whisper) | Apple Silicon (M1/M2/M3/M4) | Runs Whisper at 8–15× real-time using unified GPU memory. |
-| `faster` | [faster-whisper](https://github.com/SYSTRAN/faster-whisper) | Intel macOS & Linux | CTranslate2 backend; recommended fallback for non-Apple hardware. |
+| Alias | Apple Silicon backend | Other supported backend | Languages | Role |
+|---|---|---|---|---|
+| `turbo` | `mlx-community/whisper-turbo` | `Systran/faster-whisper-turbo` | Multilingual | Tested default |
 
-To switch backends manually:
-```bash
-transcribe config set backend faster
+The MLX weights are about 1.6 GB on disk. A clean-process benchmark on a 16 GB Apple Silicon Mac used about 2.6 GB physical memory while transcribing a 51-second file. Memory can rise for long files because audio features and decoder work are also kept during the request.
+
+## Backends
+
+| Backend | Use |
+|---|---|
+| `mlx` | Default on Apple Silicon. It uses the Apple GPU through MLX. |
+| `faster` | Fallback for Intel Macs and other systems where MLX is unavailable. |
+
+The engine selects MLX on Apple Silicon when `backend` is `auto`. Set `backend` to `faster` only when MLX is not available.
+
+## Model behavior
+
+The release profile accepts `turbo` as the supported model alias. The engine also accepts a raw model repository path for development and testing. Raw paths are not part of the supported menu-bar configuration.
+
+One model stays loaded between requests. This avoids repeated downloads and avoids keeping multiple large models in unified memory. File and live jobs use the same engine thread. Their HUD states remain independent, but model work is serialized for memory and MLX GPU-stream safety.
+
+## Download and cache
+
+The model is downloaded on first use and stored under:
+
+```text
+~/.cache/huggingface/hub/models--mlx-community--whisper-turbo/
 ```
 
----
+Inspect the current model and backend:
 
-## Supported Models
-
-| Alias | MLX Repository | faster-whisper Repository | Size | Languages | Typical Speed |
-|---|---|---|---|---|---|
-| `turbo` *(default)* | `mlx-community/whisper-turbo` | `Systran/faster-whisper-turbo` | ~1.6 GB | Default (fastest ~1.0s response) | ~12× real-time |
-| `large-v3-turbo` | `mlx-community/whisper-large-v3-turbo` | `Systran/faster-whisper-large-v3-turbo` | ~1.6 GB | Multilingual balance | ~8× real-time |
-| `large-v3` | `mlx-community/whisper-large-v3` | `Systran/faster-whisper-large-v3` | ~3.0 GB | Multilingual (max accuracy) | ~3× real-time |
-| `medium` | `mlx-community/whisper-medium` | `Systran/faster-whisper-medium` | ~1.5 GB | Multilingual | ~10× real-time |
-| `small` | `mlx-community/whisper-small` | `Systran/faster-whisper-small` | ~470 MB | Multilingual (lightest) | ~15× real-time |
-
----
-
-## Managing Models
-
-### Changing the Active Model
-Switch models using the CLI:
 ```bash
-transcribe config set model large-v3
+transcribe doctor
+transcribe models
 ```
-Or select a model directly from the **Model** submenu in the macOS menu bar. The running engine server automatically hot-reloads the new model weights into memory.
 
-### Language Selection
-By default, language detection is set to `auto`. Whisper detects spoken language dynamically on each utterance (English, Italian, Spanish, French, German, and 90+ others).
+Remove an unused model cache only when its repository is no longer configured. Do not remove the active `whisper-turbo` cache while the engine is running.
 
-To pin a specific language for faster, fixed transcription:
+## Selecting a language
+
+The default language is `auto`. You can set a fixed language:
+
 ```bash
-transcribe config set language it    # Italian
-transcribe config set language en    # English
-transcribe config set language auto  # Auto-detect (default)
+transcribe config set language en
 ```
----
 
-## System Requirements & Resource Planning
-
-Whisper runs entirely in-memory on your machine. On Apple Silicon, MLX shares Unified Memory between CPU and GPU cores with zero copy overhead.
-
-### Hardware & RAM Recommendations
-
-| Machine Configuration | Recommended Model | Expected Latency |
-|---|---|---|
-| **Apple Silicon (8 GB Unified Memory)** | `large-v3-turbo` or `medium` | ~1.0 – 1.8 s per utterance |
-| **Apple Silicon (16 GB – 128 GB)** | `large-v3-turbo` or `large-v3` | ~0.8 – 1.5 s per utterance |
-| **Intel Mac (8 GB RAM)** | `small` or `medium` (via `faster-whisper`) | ~2.5 – 4.0 s per utterance |
-| **Intel Mac (16 GB+ RAM)** | `large-v3-turbo` (via `faster-whisper`) | ~2.0 – 3.5 s per utterance |
-
-### Disk Storage
-
-- Engine and Python environment: ~200 MB
-- Hugging Face cache directory (`~/.cache/huggingface/hub/`):
-  - `large-v3-turbo`: ~1.6 GB
-  - `large-v3`: ~3.0 GB
-  - `medium`: ~1.5 GB
-  - `small`: ~470 MB
-  - `turbo`: ~800 MB
-- Ensure your primary disk has at least **3 GB free** before initial setup.
+The `turbo` profile supports multilingual speech. A fixed language can improve results when the language is known.

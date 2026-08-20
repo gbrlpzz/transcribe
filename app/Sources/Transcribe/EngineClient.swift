@@ -20,15 +20,20 @@ final class EngineClient {
         }.resume()
     }
 
-    func transcribe(path: URL, language: String,
-                    completion: @escaping (Result<TranscriptionResult, Error>) -> Void) {
+    @discardableResult
+    func transcribe(path: URL, language: String, preserveSource: Bool = false,
+                    completion: @escaping (Result<TranscriptionResult, Error>) -> Void) -> URLSessionDataTask {
         var req = URLRequest(url: baseURL.appendingPathComponent("transcribe"))
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.timeoutInterval = 300
-        let body: [String: Any] = ["path": path.path, "language": language]
+        let body: [String: Any] = [
+            "path": path.path,
+            "language": language,
+            "preserve_source": preserveSource,
+        ]
         req.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        URLSession.shared.dataTask(with: req) { data, _, error in
+        let task = URLSession.shared.dataTask(with: req) { data, _, error in
             if let error {
                 DispatchQueue.main.async { completion(.failure(error)) }
                 return
@@ -55,7 +60,9 @@ final class EngineClient {
                 backend: json["backend"] as? String ?? ""
             )
             DispatchQueue.main.async { completion(.success(result)) }
-        }.resume()
+        }
+        task.resume()
+        return task
     }
 
     func reload(completion: @escaping (Bool) -> Void = { _ in }) {

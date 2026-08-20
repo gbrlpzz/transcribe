@@ -4,9 +4,8 @@ Two steps, both native:
 1. put the text on the pasteboard (``pbcopy``),
 2. send Cmd+V to the frontmost app via System Events (AppleScript).
 
-Requires Accessibility permission for the calling process — the same
-permission commercial dictation software asks for. ``doctor`` verifies it; the native app opens
-System Settings on first run.
+Requires Accessibility permission for the calling process. ``doctor`` verifies it. The native app
+opens System Settings on first run.
 """
 
 from __future__ import annotations

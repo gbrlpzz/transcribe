@@ -29,6 +29,29 @@ if [ "${#FILES[@]}" -eq 0 ]; then
   exit 0
 fi
 
+# When the native app is installed, let it own the job. This gives Finder
+# transcription the same notch HUD, cancellation, and completion feedback as
+# the menu-bar file flow. Keep the CLI fallback for headless/source-checkout
+# installs where the app is not present.
+APP="/Applications/Transcribe.app"
+if [[ ! -d "$APP" && -d "$REPO/app/dist/Transcribe.app" ]]; then
+  APP="$REPO/app/dist/Transcribe.app"
+fi
+if [[ -d "$APP" ]]; then
+  routed=1
+  for file in "${FILES[@]}"; do
+    # Send a normal open-file event. This is the native macOS handoff and is
+    # more reliable than encoding a filesystem path into a custom URL.
+    if ! /usr/bin/open -g -a "$APP" "$file" >/dev/null 2>&1; then
+      routed=0
+      break
+    fi
+  done
+  if [[ "$routed" -eq 1 ]]; then
+    exit 0
+  fi
+fi
+
 if [ -x "$VENV_PY" ]; then
   RUNNER=("$VENV_PY" -m transcribe)
 elif command -v transcribe >/dev/null 2>&1; then
