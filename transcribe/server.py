@@ -122,11 +122,16 @@ class _Handler(BaseHTTPRequestHandler):
         # store a copy + transcript (TTL cleanup handles bloat)
         duration = result.get("duration", 0.0)
         try:
+            is_file_job = preserve_source
             save_session(
-                None if preserve_source else audio_path,
+                None if is_file_job else audio_path,
                 result["text"], duration=duration,
                 model=result["model"], language=result.get("language", ""),
-                source="app", keep_transcripts=self.server.config.keep_transcripts,
+                source="file" if is_file_job else "live",
+                keep_transcripts=self.server.config.keep_transcripts,
+                source_path=audio_path if is_file_job else "",
+                transcript_path=(os.path.splitext(audio_path)[0] + ".md"
+                                 if is_file_job else ""),
             )
         except OSError:
             pass  # never fail a transcription because of bookkeeping
@@ -156,7 +161,8 @@ class TranscribeServer(ThreadingHTTPServer):
         self.lock = threading.Lock()
         self.transcriber = Transcriber(model=config.model, backend=config.backend,
                                        language=config.language)
-        clean(config.cleanup_ttl_hours)
+        clean(live_ttl_hours=config.live_cleanup_ttl_hours,
+              file_ttl_hours=config.cleanup_ttl_hours)
 
     def run_engine(self, operation):
         """Run model work on the one thread that also performs warm-up."""

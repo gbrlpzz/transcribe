@@ -22,9 +22,10 @@ A session can contain:
 - The temporary WAV recording.
 - The transcript and metadata in a JSON file.
 
-The menu-bar app removes its temporary microphone WAV after transcription. The engine removes expired session records according to `cleanup_ttl_hours`, which defaults to 48 hours.
+The menu-bar app removes its temporary microphone WAV after transcription. The engine keeps the moved live WAV and its metadata for `live_cleanup_ttl_hours` (one hour by default), then removes both. The live clipboard value is also cleared after one hour when it has not been replaced by the user.
 
-Finder and menu-bar file transcription preserve the selected source file. Finder output is written as `<file>.md` beside the source. The source is not moved into the session folder.
+Finder and menu-bar file transcription preserve the selected source file. Finder output is written as `<file>.md` beside the source. The source is not moved into the session folder. The generated Markdown and session metadata are removed after `cleanup_ttl_hours` (seven days by default).
+
 
 Run cleanup manually:
 
@@ -32,11 +33,14 @@ Run cleanup manually:
 transcribe clean
 ```
 
-Set the TTL to zero to remove session data after completion:
+Set the live recovery window and file retention separately:
 
 ```bash
-transcribe config set cleanup_ttl_hours 0
+transcribe config set live_cleanup_ttl_hours 1
+transcribe config set cleanup_ttl_hours 168
 ```
+
+Use `transcribe clean` to remove data that has passed either TTL. Setting a TTL to `0` removes that class on the next cleanup run.
 
 ## macOS permissions
 

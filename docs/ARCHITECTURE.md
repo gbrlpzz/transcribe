@@ -60,7 +60,7 @@ The app keeps live and file state separate:
 5. The engine stores a session record and returns text.
 6. Live text is pasted into the focused app.
 7. The app removes temporary microphone recordings.
-8. Finder file requests set `preserve_source: true` and write `<file>.md` beside the original.
+8. Finder file requests set `preserve_source: true`, write `<file>.md` beside the original, and track that generated output for file-TTL cleanup.
 
 ## Configuration
 
@@ -70,4 +70,4 @@ Swift and Python share this file:
 ~/Library/Application Support/transcribe/config.json
 ```
 
-The release profile uses the `turbo` model, the selected language, the local port, paste settings, and the session cleanup TTL.
+The release profile uses the `turbo` model, the selected language, the local port, paste settings, a one-hour live cleanup TTL, and a seven-day file transcript TTL.

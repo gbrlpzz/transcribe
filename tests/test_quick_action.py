@@ -15,10 +15,10 @@ def test_quick_action_declares_a_runner_compatible_file_type():
 
     service = info["NSServices"][0]
     assert service["NSMessage"] == "runWorkflowAsService"
-    assert service["NSSendFileTypes"] == ["public.audio", "public.movie"]
+    assert service["NSSendFileTypes"] == ["public.item"]
     assert (
         document["workflowMetaData"]["serviceInputTypeIdentifier"]
-        == "com.apple.Automator.fileSystemObject.music"
+        == "com.apple.Automator.fileSystemObject"
     )
 
 

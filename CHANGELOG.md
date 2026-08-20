@@ -2,6 +2,25 @@
 
 All notable changes to Transcribe are documented here.
 
+## [0.3.1] - 2026-08-20
+
+### Added
+
+- Finder and the native file picker now accept any file. Local `ffmpeg` decides whether it contains a supported audio stream.
+- Live clipboard text is cleared after a one-hour recovery window when it has not been replaced.
+- Live sessions and generated file transcripts now have separate retention windows.
+
+### Changed
+
+- Live audio and metadata expire after one hour by default.
+- Generated file Markdown and session metadata expire after seven days by default. Original file sources are never removed.
+- Decoder errors now include the local `ffmpeg` reason.
+
+### Fixed
+
+- File transcript cleanup now removes generated Markdown as well as session metadata.
+- Sessions remain cleanable when transcript text retention is disabled.
+
 ## [0.3.0] - 2026-08-20
 
 ### Added

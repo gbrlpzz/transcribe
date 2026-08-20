@@ -470,12 +470,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         self.pill.show(.empty)
                     } else if self.config.paste && AXIsProcessTrusted() {
                         Paste.paste(text)
+                        Paste.clearIfUnchanged(text)
                         self.flashResult(text)
                     } else if self.config.paste {
                         Paste.copyOnly(text)
+                        Paste.clearIfUnchanged(text)
                         self.flashResult(text)
                     } else {
                         Paste.copyOnly(text)
+                        Paste.clearIfUnchanged(text)
                         self.flashResult(text)
                     }
                 case .failure(let error):
@@ -594,9 +597,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func pickFile() {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.audio, .movie, .mpeg4Audio, .wav]
+        // Do not filter by extension or Uniform Type Identifier here. ffmpeg
+        // decides whether the selected media has a decodable audio stream, so
+        // uncommon containers and files without a normal extension work too.
+        panel.allowedContentTypes = []
         panel.allowsMultipleSelection = false
-        panel.message = "Choose an audio file to transcribe locally."
+        panel.message = "Choose any media file with an audio track to transcribe locally."
         panel.begin { [weak self] response in
             guard response == .OK, let url = panel.url else { return }
             self?.enqueueFile(url)

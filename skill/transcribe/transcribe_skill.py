@@ -72,10 +72,11 @@ def dictate(seconds: float | None = None, paste: bool = False) -> dict:
 
 
 def clean(ttl_hours: float | None = None, dry_run: bool = False) -> list[str]:
-    """Remove recordings/transcripts older than the TTL. Returns removed paths."""
+    """Remove expired live data and file transcripts. Returns removed paths."""
     cfg = load()
-    return _clean(ttl_hours if ttl_hours is not None else cfg.cleanup_ttl_hours,
-                  dry_run=dry_run)
+    return _clean(ttl_hours, dry_run=dry_run,
+                  live_ttl_hours=cfg.live_cleanup_ttl_hours,
+                  file_ttl_hours=cfg.cleanup_ttl_hours)
 
 
 def models() -> str:

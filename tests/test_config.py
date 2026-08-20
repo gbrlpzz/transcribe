@@ -12,3 +12,9 @@ def test_roundtrip(tmp_path, monkeypatch):
     assert loaded.language == "it"
     assert loaded.smart_text is False
     assert os.path.exists(path)
+
+
+def test_retention_defaults():
+    cfg = Config()
+    assert cfg.live_cleanup_ttl_hours == 1.0
+    assert cfg.cleanup_ttl_hours == 168.0

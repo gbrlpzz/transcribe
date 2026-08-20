@@ -163,11 +163,13 @@ def audio_to_wav(path: str, sr: int = 16000) -> str:
         )
     if not os.path.exists(path):
         raise RuntimeError(f"audio file not found: {path}")
-    out = tempfile.mktemp(suffix=".wav")
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as fh:
+        out = fh.name
     proc = subprocess.run(
-        [ff, "-y", "-i", path, "-vn", "-ac", "1", "-ar", str(sr),
+        [ff, "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-i", path,
+         "-map", "0:a:0?", "-vn", "-sn", "-dn", "-ac", "1", "-ar", str(sr),
          "-c:a", "pcm_s16le", out],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
     )
     if proc.returncode != 0 or not os.path.exists(out) or os.path.getsize(out) == 0:
         # Clean up a possible empty/partial output before reporting failure.
@@ -176,8 +178,12 @@ def audio_to_wav(path: str, sr: int = 16000) -> str:
                 os.remove(out)
             except OSError:
                 pass
+        detail = " ".join((proc.stderr or "").split())
+        if len(detail) > 360:
+            detail = detail[-360:]
+        suffix = f" ({detail})" if detail else ""
         raise RuntimeError(
-            f"ffmpeg could not decode {os.path.basename(path)} — the file may be "
+            f"ffmpeg could not decode {os.path.basename(path)}{suffix} — the file may be "
             "corrupt, DRM-protected, or an unsupported format"
         )
     return out

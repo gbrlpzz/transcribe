@@ -45,7 +45,10 @@ class Config:
     # --- behaviour ---------------------------------------------------------
     paste: bool = True              # paste into the focused app after transcribing
     smart_text: bool = True         # "comma" -> ","  "new line" -> newline, etc.
-    cleanup_ttl_hours: float = 48.0 # delete recordings + transcripts older than this
+    # Live dictation is ephemeral: keep a short recovery window so a bad paste
+    # can be pasted again. File jobs use the longer, user-visible TTL below.
+    live_cleanup_ttl_hours: float = 1.0
+    cleanup_ttl_hours: float = 168.0  # file transcript TTL; kept as a CLI-compatible name
     keep_transcripts: bool = True   # save a .json transcript next to each recording
     # --- local engine server ----------------------------------------------
     port: int = 8765
@@ -74,7 +77,9 @@ def load() -> Config:
         except (json.JSONDecodeError, OSError) as exc:
             print(f"warning: could not read {path} ({exc}); using defaults", file=sys.stderr)
     known = {f.name for f in fields(Config)}
-    values = {k: v for k, v in raw.items() if k in known}
+    values = {k: v for k, v in raw.items() if k in known and v is not None}
+    # Older releases had one TTL for every session. Preserve an explicitly
+    # configured value as the file TTL while using the new one-hour live default.
     return Config(**values)
 
 

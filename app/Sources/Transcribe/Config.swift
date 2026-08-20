@@ -10,7 +10,7 @@ struct AppConfig: Codable {
     var sampleRate: Int = 16000
     var paste: Bool = true
     var smartText: Bool = true
-    var cleanupTtlHours: Double = 48.0
+    var cleanupTtlHours: Double = 168.0
     var keepTranscripts: Bool = true
     var port: Int = 8765
     var warmOnStart: Bool = true

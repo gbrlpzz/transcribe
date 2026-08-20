@@ -23,9 +23,9 @@
 - **Native menu-bar app**: Global hotkey, paste support, microphone recording, and setup checks.
 - **Notch HUD**: Apple-style status feedback with recording, transcription, result, error, and cancel states.
 - **Concurrent feedback**: Live dictation and file transcription have separate HUD states. A file is a large pill alone. During overlap, live dictation is on the left and the file is a spinner circle on the right.
-- **Finder Quick Action**: Transcribe audio or video files from Finder. The source file stays in place and `<file>.md` is saved beside it.
+- **Finder Quick Action**: Transcribe any file with an audio stream that the local `ffmpeg` build can decode. The source file stays in place and `<file>.md` is saved beside it.
 - **Prime Agent skill**: Optional local transcription tools for Prime Agent.
-- **Automatic cleanup**: Session audio and transcripts are removed after the configured TTL. The default is 48 hours.
+- **Automatic cleanup**: Live audio and pasted text are kept for a one-hour recovery window. Generated file transcripts are kept for seven days by default. Selected source files are never deleted.
 
 ## Requirements
 
@@ -89,14 +89,14 @@ Launch `/Applications/Transcribe.app`. A microphone icon appears in the menu bar
 - Press `⌃␣` to start dictation.
 - Press `⌃␣` again to stop and transcribe.
 - Press `Esc` or click the HUD to cancel.
-- Use **Transcribe File…** to choose an audio or video file.
+- Use **Transcribe File…** to choose any media file with an audio track. `ffmpeg` handles the container and codec.
 - Use **Clean Up Old Recordings** to remove sessions older than the TTL.
 
 The result is pasted into the focused app. File transcription also writes a Markdown file beside the source.
 
 ### Finder Quick Action
 
-Right-click an audio or video file in Finder and choose **Quick Actions → Transcribe**. The source stays in its original folder. The transcript is written beside it as `<file>.md`.
+Right-click any file in Finder and choose **Quick Actions → Transcribe**. Files without a decodable audio stream fail with the local `ffmpeg` reason. The source stays in its original folder. The transcript is written beside it as `<file>.md`.
 
 ### Command line
 
@@ -113,13 +113,14 @@ transcribe serve
 transcribe doctor
 transcribe models
 
-# Clean sessions older than the configured TTL
+# Clean expired live data and file transcripts
 transcribe clean
 
 # Change local settings
 transcribe config set language en
 transcribe config set hotkey "ctrl+space"
-transcribe config set cleanup_ttl_hours 24
+transcribe config set live_cleanup_ttl_hours 1
+transcribe config set cleanup_ttl_hours 168
 ```
 
 ### Prime Agent skill
@@ -146,7 +147,8 @@ Configuration is stored at `~/Library/Application Support/transcribe/config.json
   "backend": "auto",
   "paste": true,
   "smart_text": true,
-  "cleanup_ttl_hours": 48.0,
+  "live_cleanup_ttl_hours": 1.0,
+  "cleanup_ttl_hours": 168.0,
   "hotkey": "ctrl+space",
   "port": 8765
 }
@@ -159,9 +161,10 @@ The release profile uses the tested `turbo` model and one warm engine process. T
 1. Speech recognition runs locally.
 2. The HTTP server listens only on `127.0.0.1`.
 3. Sessions are stored under `~/Library/Application Support/transcribe/sessions/`.
-4. Cleanup removes sessions older than `cleanup_ttl_hours`.
-5. The menu-bar app removes temporary microphone recordings after transcription.
-6. Finder source files are preserved. Their Markdown output is written beside them.
+4. Live session audio and metadata expire after `live_cleanup_ttl_hours` (one hour by default).
+5. The live clipboard value is cleared after the same recovery window if it is unchanged.
+6. Generated file Markdown and metadata expire after `cleanup_ttl_hours` (seven days by default).
+7. Finder source files are preserved. Cleanup never removes them.
 
 See [docs/PRIVACY.md](docs/PRIVACY.md).
 

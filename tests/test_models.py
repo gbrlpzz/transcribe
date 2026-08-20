@@ -10,4 +10,4 @@ def test_release_exposes_only_tested_turbo_profile():
 def test_release_version():
     import transcribe
 
-    assert transcribe.__version__ == "0.3.0"
+    assert transcribe.__version__ == "0.3.1"

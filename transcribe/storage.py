@@ -1,10 +1,9 @@
 """Session storage with time-to-live cleanup.
 
-Every dictation produces a recording plus an optional sidecar JSON transcript
-under ``<home>/sessions/<YYYYMMDD>/``. Old sessions are wiped automatically by
-``clean()`` (run on every CLI command, on server start, and after every
-dictation), so audio and transcripts never accumulate — the default TTL is 48
-hours and is configurable.
+Live dictation produces a recording plus an optional sidecar JSON transcript
+under ``<home>/sessions/<YYYYMMDD>/``. File jobs keep the source in place and
+track the generated Markdown beside it. ``clean()`` removes live data after a
+short recovery window and file transcripts after the longer file TTL.
 """
 
 from __future__ import annotations
@@ -32,7 +31,9 @@ class Session:
     duration: float = 0.0
     model: str = ""
     language: str = ""
-    source: str = "cli"     # "cli" | "app" | "agent"
+    source: str = "cli"     # "live" | "file" | legacy "cli"/"app"/"agent"
+    source_path: str = ""    # original file for a file job; never removed by cleanup
+    transcript_path: str = ""  # generated file transcript, if any
 
     @property
     def meta_path(self) -> str:
@@ -52,6 +53,8 @@ def save_session(
     language: str = "",
     source: str = "cli",
     keep_transcripts: bool = True,
+    source_path: str = "",
+    transcript_path: str = "",
 ) -> Session:
     """Move (or reference) a recording into session storage and write metadata."""
     day = time.strftime("%Y%m%d")
@@ -67,12 +70,18 @@ def save_session(
         else:
             stored_wav = recording
 
+    if source == "file" and source_path and not transcript_path:
+        transcript_path = os.path.splitext(source_path)[0] + ".md"
+
     session = Session(
         id=sid, day=day, recording=stored_wav, transcript=transcript,
         created_at=time.time(), duration=duration, model=model,
-        language=language, source=source,
+        language=language, source=source, source_path=source_path,
+        transcript_path=transcript_path,
     )
-    if keep_transcripts:
+    # Keep metadata whenever there is a recording or generated file output so
+    # cleanup can remove it even when transcript text retention is disabled.
+    if keep_transcripts or stored_wav or session.transcript_path:
         meta: dict[str, Any] = {
             "id": session.id,
             "created_at": session.created_at,
@@ -80,7 +89,9 @@ def save_session(
             "model": session.model,
             "language": session.language,
             "source": session.source,
-            "transcript": transcript,
+            "source_path": session.source_path,
+            "transcript_path": session.transcript_path,
+            "transcript": transcript if keep_transcripts else "",
         }
         with open(session.meta_path, "w") as fh:
             json.dump(meta, fh, indent=2)
@@ -116,16 +127,47 @@ def iter_sessions() -> Iterator[Session]:
                 model=meta.get("model", ""),
                 language=meta.get("language", ""),
                 source=meta.get("source", "cli"),
+                source_path=meta.get("source_path", ""),
+                transcript_path=meta.get("transcript_path", ""),
             )
 
 
-def clean(ttl_hours: float, dry_run: bool = False) -> list[str]:
-    """Delete sessions older than ``ttl_hours``. Returns removed file paths."""
-    cutoff = time.time() - ttl_hours * 3600
+def _session_kind(session: Session) -> str:
+    """Classify legacy metadata without deleting user-owned source files."""
+    if session.source == "file":
+        return "file"
+    if session.source == "live":
+        return "live"
+    # v0.2/v0.3 used ``app`` for both flows. A moved WAV identifies live data;
+    # file jobs have no recording because the original must stay in place.
+    if session.source == "app":
+        return "live" if session.recording else "file"
+    return "live" if session.recording else "file"
+
+
+def clean(ttl_hours: float | None = None, dry_run: bool = False, *,
+          live_ttl_hours: float | None = None,
+          file_ttl_hours: float | None = None) -> list[str]:
+    """Delete expired live data and generated file transcripts.
+
+    ``ttl_hours`` remains as a compatibility override for callers that want
+    one TTL for every kind. File source paths are never removed.
+    """
+    if ttl_hours is not None:
+        live_ttl_hours = file_ttl_hours = ttl_hours
+    live_ttl_hours = 1.0 if live_ttl_hours is None else live_ttl_hours
+    file_ttl_hours = 168.0 if file_ttl_hours is None else file_ttl_hours
+    now = time.time()
     removed: list[str] = []
     for session in iter_sessions():
+        kind = _session_kind(session)
+        ttl = live_ttl_hours if kind == "live" else file_ttl_hours
+        cutoff = now - ttl * 3600
         if session.created_at and session.created_at < cutoff:
-            for path in (session.recording, session.meta_path):
+            paths = [session.recording, session.meta_path]
+            if kind == "file":
+                paths.append(session.transcript_path)
+            for path in paths:
                 if path and os.path.exists(path):
                     if not dry_run:
                         os.remove(path)

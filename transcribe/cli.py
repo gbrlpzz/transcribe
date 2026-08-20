@@ -70,8 +70,13 @@ def _parse() -> argparse.ArgumentParser:
     serve_p.add_argument("--port", type=int, default=None)
     serve_p.add_argument("--no-warm", action="store_true", help="don't preload the model")
 
-    clean_p = sub.add_parser("clean", help="delete recordings/transcripts older than the TTL")
-    clean_p.add_argument("--ttl-hours", type=float, default=None)
+    clean_p = sub.add_parser("clean", help="delete expired live data and file transcripts")
+    clean_p.add_argument("--ttl-hours", type=float, default=None,
+                         help="legacy override: use one TTL for both kinds")
+    clean_p.add_argument("--live-ttl-hours", type=float, default=None,
+                         help="live dictation TTL (default: 1 hour)")
+    clean_p.add_argument("--file-ttl-hours", type=float, default=None,
+                         help="file transcript TTL (default: 168 hours)")
     clean_p.add_argument("--dry-run", action="store_true")
 
     cfg = sub.add_parser("config", help="view or change configuration")
@@ -173,8 +178,10 @@ def _write_markdown(audio_path: str, text: str) -> str:
         fh.write(content)
     return md_path
 
-def _maybe_keep(args, cfg: Config, wav: str | None, text: str, result: dict):
-    """Persist a session unless --no-keep; always honor the TTL cleanup."""
+def _maybe_keep(args, cfg: Config, wav: str | None, text: str, result: dict,
+                *, source: str = "live", source_path: str = "",
+                transcript_path: str = ""):
+    """Persist a session unless --no-keep; always honor per-kind cleanup."""
     if not getattr(args, "no_keep", False):
         try:
             save_session(
@@ -182,14 +189,17 @@ def _maybe_keep(args, cfg: Config, wav: str | None, text: str, result: dict):
                 duration=result.get("duration", 0.0),
                 model=result.get("model", ""),
                 language=result.get("language", ""),
-                source="cli",
+                source=source,
                 keep_transcripts=cfg.keep_transcripts,
+                source_path=source_path,
+                transcript_path=transcript_path,
             )
         except OSError:
             pass
     elif wav and os.path.exists(wav):
         os.remove(wav)
-    clean(cfg.cleanup_ttl_hours)
+    clean(live_ttl_hours=cfg.live_cleanup_ttl_hours,
+          file_ttl_hours=cfg.cleanup_ttl_hours)
 
 
 def cmd_listen(args, cfg: Config) -> int:
@@ -201,7 +211,7 @@ def cmd_listen(args, cfg: Config) -> int:
     result = transcribe(wav, **_transcribe_args(args, cfg))
     text = _smart(result["text"], args.smart_text, cfg)
     print(text)
-    _maybe_keep(args, cfg, wav, text, result)
+    _maybe_keep(args, cfg, wav, text, result, source="live")
     if cfg.paste and args.paste is not False:
         paste_text(text)
     return 0
@@ -246,7 +256,8 @@ def cmd_file(args, cfg: Config) -> int:
             print(text)
         if args.notify:
             notify("Transcription saved", os.path.basename(md_path))
-        _maybe_keep(args, cfg, None, text, result)
+        _maybe_keep(args, cfg, None, text, result, source="file",
+                     source_path=path, transcript_path=md_path)
 
     if args.json:
         print(json.dumps(results, ensure_ascii=False, indent=2))
@@ -260,11 +271,18 @@ def cmd_serve(args, cfg: Config) -> int:
 
 
 def cmd_clean(args, cfg: Config) -> int:
-    ttl = args.ttl_hours if args.ttl_hours is not None else cfg.cleanup_ttl_hours
-    removed = clean(ttl, dry_run=args.dry_run)
+    if args.ttl_hours is not None:
+        live_ttl = file_ttl = args.ttl_hours
+    else:
+        live_ttl = (args.live_ttl_hours if args.live_ttl_hours is not None
+                    else cfg.live_cleanup_ttl_hours)
+        file_ttl = (args.file_ttl_hours if args.file_ttl_hours is not None
+                    else cfg.cleanup_ttl_hours)
+    removed = clean(dry_run=args.dry_run, live_ttl_hours=live_ttl,
+                    file_ttl_hours=file_ttl)
     if removed:
         print(f"{'would remove' if args.dry_run else 'removed'} {len(removed)} file(s) "
-              f"older than {ttl:g}h")
+              f"(live TTL {live_ttl:g}h; file TTL {file_ttl:g}h)")
         for path in removed[:10]:
             print("  ", path)
         if len(removed) > 10:
@@ -373,9 +391,11 @@ def cmd_doctor(args, cfg: Config) -> int:
         report("accessibility (for paste)", check_accessibility(),
                "System Settings → Privacy & Security → Accessibility → enable your terminal")
 
-    stale = clean(cfg.cleanup_ttl_hours, dry_run=True)
+    stale = clean(dry_run=True, live_ttl_hours=cfg.live_cleanup_ttl_hours,
+                  file_ttl_hours=cfg.cleanup_ttl_hours)
     report("no stale sessions", not stale,
-           f"{len(stale)} file(s) older than {cfg.cleanup_ttl_hours:g}h — run `transcribe clean`")
+           f"{len(stale)} file(s) past live {cfg.live_cleanup_ttl_hours:g}h / "
+           f"file {cfg.cleanup_ttl_hours:g}h TTL — run `transcribe clean`")
     print()
     print("config file:", config_path())
     return 0 if ok else 1

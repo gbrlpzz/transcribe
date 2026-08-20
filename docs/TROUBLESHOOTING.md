@@ -56,7 +56,7 @@ Reinstall it:
 make quick-action-install
 ```
 
-Then open Finder, select an audio or video file, and choose **Quick Actions → Transcribe**. The service is Finder-only and accepts audio and movie files.
+Then open Finder, select a file, and choose **Quick Actions → Transcribe**. The service accepts all files. Transcription succeeds when the local `ffmpeg` build can find and decode an audio stream.
 
 ## The source file disappeared
 
@@ -92,10 +92,10 @@ Sessions are stored under:
 ~/Library/Application Support/transcribe/sessions/
 ```
 
-Remove sessions older than the configured TTL:
+Remove expired data:
 
 ```bash
 transcribe clean
 ```
 
-This does not remove the active model cache or Finder source files.
+Live sessions use the one-hour TTL. Generated file transcripts use the seven-day TTL. This does not remove the active model cache or Finder source files.
