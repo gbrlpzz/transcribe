@@ -22,9 +22,9 @@ A session can contain:
 - The temporary WAV recording.
 - The transcript and metadata in a JSON file.
 
-The menu-bar app removes its temporary microphone WAV after transcription. The engine keeps the moved live WAV and its metadata for `live_cleanup_ttl_hours` (one hour by default), then removes both. The live clipboard value is also cleared after one hour when it has not been replaced by the user.
+The Zig daemon sends live PCM over the local Unix socket and does not keep an idle microphone buffer. The engine keeps the live WAV and its metadata for `live_cleanup_ttl_hours` (one hour by default), then removes both. The live clipboard value is also cleared after one hour when it has not been replaced by the user.
 
-Finder and menu-bar file transcription preserve the selected source file. Finder output is written as `<file>.md` beside the source. The source is not moved into the session folder. The generated Markdown and session metadata are removed after `cleanup_ttl_hours` (seven days by default).
+Finder and CLI file transcription preserve the selected source file. Finder output is written as `<file>.md` beside the source. The source is not moved into the session folder. The generated Markdown and session metadata are removed after `cleanup_ttl_hours` (seven days by default).
 
 
 Run cleanup manually:
@@ -46,4 +46,5 @@ Use `transcribe clean` to remove data that has passed either TTL. Setting a TTL 
 
 - **Microphone**: Used while dictation is recording.
 - **Accessibility**: Used to paste text into the focused app. If it is unavailable, the result is still copied to the pasteboard.
-- **Apple Events**: Used by the paste operation to send `⌘V`.
+- **Input Monitoring**: Used only if macOS reserves `⌃␣` and the daemon needs its CoreGraphics event-tap fallback.
+- **Apple Events**: No cloud or remote events are used. Native CGEvent paste requires Accessibility.

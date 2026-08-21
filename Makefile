@@ -3,7 +3,7 @@
 PYTHON ?= .venv/bin/python
 PIP     ?= .venv/bin/pip
 
-.PHONY: help venv install app app-install quick-action-install skill daemon daemon-test test doctor clean
+.PHONY: help venv install app app-install quick-action-install skill daemon daemon-install daemon-test test doctor clean
 
 help: ## show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
@@ -14,10 +14,8 @@ venv: ## create the virtualenv and install the package (editable) + dev deps
 
 BACKEND_FLAG ?= $(shell [ "$$(uname -s)" = "Darwin" ] && [ "$$(uname -m)" = "arm64" ] && echo "--with mlx==0.32.1 --with mlx-whisper==0.4.3" || echo "--with faster-whisper")
 
-install: ## install engine + skill for the current user (auto-detects hardware backend)
-	uv tool install $(BACKEND_FLAG) --force --reinstall .
-	@echo "→ installing Prime Agent skill…"
-	@bash scripts/install-skill.sh
+install: ## install engine, daemon, LaunchAgents, Quick Action, and skill
+	@bash scripts/install-macos.sh
 
 app: ## build the native menu-bar app into app/dist/Transcribe.app
 	bash app/build.sh
@@ -35,6 +33,9 @@ quick-action-install: ## install the Finder right-click action
 
 daemon: ## build the Zig capture daemon (ReleaseFast)
 	cd daemon && zig build -Doptimize=ReleaseFast
+
+daemon-install: ## install the daemon and reload its LaunchAgents
+	@bash scripts/install-macos.sh
 
 daemon-test: ## run daemon unit tests
 	cd daemon && zig build test

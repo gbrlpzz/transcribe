@@ -6,23 +6,42 @@ Run:
 
 ```bash
 transcribe doctor
+transcribe ping
 ```
 
-The command checks the local engine, the selected backend, `ffmpeg`, the model cache, and macOS permissions.
+The commands check the local engine, backend, `ffmpeg`, model cache, and the
+live Unix socket.
 
 ## The engine is offline
 
-Start it from the menu-bar app by choosing **Engine: not running — Start**. You can also run:
+The engine and daemon start through LaunchAgents after `make install`. To
+reload the complete installation:
 
 ```bash
-transcribe serve
+bash scripts/install-macos.sh
 ```
 
-The server listens only on `127.0.0.1:8765`.
+For a foreground engine test:
+
+```bash
+transcribe serve --no-warm
+```
+
+The HTTP server listens only on `127.0.0.1:8765`. The streaming socket is:
+
+```text
+~/Library/Application Support/transcribe/dictation.sock
+```
+
+Do not start a second engine process on port `8765` while the LaunchAgent is
+running.
 
 ## The first request is slow
 
-The first request downloads the model weights. The default `turbo-q4` download is about 450 MB, plus about 80 MB for the language-detection helper, and happens once. Later requests use the local cache.
+The first install downloads the model weights. The default `turbo-q4`
+download is about 450 MB, plus about 80 MB for the language-detection helper.
+The daemon also prepares Core Audio once at startup. On the reference machine
+that preparation took about 1.998 s once; later activation measured 31–38 ms.
 
 Check the model cache:
 
@@ -31,21 +50,33 @@ transcribe models
 du -sh ~/.cache/huggingface/hub/models--mlx-community--whisper-large-v3-turbo-4bit
 ```
 
-Do not start a second engine process on port `8765`. If an old process is still listening, restart the menu-bar app or stop that process before starting the server manually.
-
 ## Transcription fails with an MLX stream error
 
-MLX GPU streams belong to the thread that created them. The current server warms the model and runs inference on one dedicated engine thread. Restart the engine after upgrading MLX:
+MLX GPU streams belong to the thread that created them. The current server
+warms the model and runs inference on one dedicated engine thread. Reload the
+installation after upgrading MLX:
 
 ```bash
-pkill -f 'transcribe serve --port 8765'
-transcribe serve --port 8765
+bash scripts/install-macos.sh
 ```
 
-If the error continues, reinstall the supported tool environment and keep the tested MLX versions:
+The supported Apple Silicon versions are `mlx==0.32.1` and
+`mlx-whisper==0.4.3`.
+
+## The shortcut does not work
+
+The primary shortcut is `⌃␣`. If macOS reserves it for input-source switching,
+the daemon automatically tries `⌃⌥␣`. Grant Accessibility and Input Monitoring
+to:
+
+```text
+~/.local/bin/transcribe
+```
+
+Then reload the daemon:
 
 ```bash
-uv tool install --force --from git+https://github.com/gbrlpzz/transcribe transcribe --with mlx==0.32.1 --with mlx-whisper==0.4.3
+launchctl kickstart -k gui/$(id -u)/com.gbrlpzz.transcribe.daemon
 ```
 
 ## Finder does not show the Quick Action
@@ -56,17 +87,9 @@ Reinstall it:
 make quick-action-install
 ```
 
-Then open Finder, select a file, and choose **Quick Actions → Transcribe**. The service accepts all files. Transcription succeeds when the local `ffmpeg` build can find and decode an audio stream.
-
-## The source file disappeared
-
-The app sends `preserve_source: true` for Finder and menu-bar file jobs. The source should remain in its original folder. The transcript is saved beside it as `<file>.md`.
-
-If the source is still moved, verify that the installed app is current:
-
-```bash
-make app-install
-```
+Then open Finder, select a file, and choose **Quick Actions → Transcribe**.
+The service accepts a file when the local `ffmpeg` build can decode an audio
+stream.
 
 ## Paste does not work
 
@@ -76,13 +99,9 @@ Run:
 transcribe doctor
 ```
 
-Enable Accessibility for Transcribe in **System Settings → Privacy & Security → Accessibility**. The app opens this page when setup is incomplete.
-
-## The HUD looks stuck
-
-A long file can take time. The file spinner stays visible while the engine works. The live recorder can run at the same time, but final model requests share one warm engine and may wait for the current request.
-
-Use **Esc** or click the active HUD to cancel the live or file job.
+Enable Accessibility for `~/.local/bin/transcribe` in **System Settings →
+Privacy & Security → Accessibility**. The final text remains available through
+the local engine even when paste permission is missing.
 
 ## Clean old sessions
 
@@ -98,4 +117,5 @@ Remove expired data:
 transcribe clean
 ```
 
-Live sessions use the one-hour TTL. Generated file transcripts use the seven-day TTL. This does not remove the active model cache or Finder source files.
+Live sessions use the one-hour TTL. Generated file transcripts use the
+seven-day TTL. This does not remove the model cache or Finder source files.

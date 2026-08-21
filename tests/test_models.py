@@ -18,4 +18,4 @@ def test_faster_backend_shares_one_turbo_repo():
 def test_release_version():
     import transcribe
 
-    assert transcribe.__version__ == "0.5.0"
+    assert transcribe.__version__ == "0.5.1"

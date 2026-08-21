@@ -22,5 +22,17 @@
   "daemon_pipe": {
     "wall_ms_flood": 3638,
     "note": "includes process start, UDS connect, PCM flood, decode, teardown"
+  },
+  "daemon_activation": {
+    "audio_prepare_ms": 1998.20775,
+    "activation_samples_ms": [
+      38.037708,
+      31.437834
+    ],
+    "activation_range_ms": [
+      31.437834,
+      38.037708
+    ],
+    "note": "Measured from the v0.5.1 LaunchAgent log on the reference Apple Silicon Mac; audio unit prepared once at daemon startup, then AudioOutputUnitStart per press."
   }
 }

@@ -80,6 +80,13 @@ def test_dedupe_seam_no_overlap_keeps_all():
 
 # --- session chunking -----------------------------------------------------------
 
+def test_format_elapsed_ns_preserves_sub_millisecond_units():
+    assert ss.format_elapsed_ns(0) == "unmeasured"
+    assert ss.format_elapsed_ns(42) == "42 ns"
+    assert ss.format_elapsed_ns(1_234) == "1.234 µs"
+    assert ss.format_elapsed_ns(1_234_567) == "1.234567 ms"
+
+
 def test_session_ignores_silence_only_stream():
     calls = []
     sess = ss.DictationSession("t", "auto",
@@ -160,6 +167,8 @@ def test_full_dictation_roundtrip(server):
     final = events[-1]
     assert final["ev"] == "final" and final["text"] == "echo(auto)"
     assert isinstance(final["elapsed_ms"], int)
+    assert isinstance(final["elapsed_ns"], int)
+    assert final["elapsed_ns"] > 0
     c.close()
 
 

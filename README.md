@@ -2,25 +2,22 @@
 
 **Local dictation and audio transcription for macOS.** Press a global hotkey, speak, and Transcribe types the result into the focused app. Audio stays on your Mac.
 
-```
-┌─────────────────────────────┐     ┌──────────────────────────┐
-│  Menu-bar App (Swift)       │     │  Prime Agent Skill       │
-│  Global hotkey · Mic · HUD  │     │  transcribe_audio()      │
-└──────────────┬──────────────┘     └─────────────┬────────────┘
-               │  WAV (16 kHz mono)               │  Audio file
-               ▼                                  ▼
-        ┌───────────────────────────────────────────────┐
-        │  Local Engine Server (127.0.0.1:8765)         │
-        │  One warm Whisper turbo model · MLX           │
-        │  Local storage · smart text · TTL cleanup     │
-        └───────────────────────────────────────────────┘
+```text
+┌──────────────────────────────┐        ┌─────────────────────────────┐
+│  transcribe (Zig, resident)  │  UDS   │  Local engine (Python/MLX)   │
+│  hotkey · Core Audio · paste │ ─────► │  warm turbo-q4 · VAD · text  │
+└──────────────┬───────────────┘        └──────────────┬──────────────┘
+               │                                        │
+               │ Finder Quick Action                    │ local files
+               ▼                                        ▼
+          selected audio/video ────────────────► Markdown beside source
 ```
 
 ## Features
 
 - **Local and private**: Speech recognition runs on the Mac. The engine binds to `127.0.0.1`.
 - **One tested model**: 4-bit `whisper-turbo` stays warm for fast, low-footprint dictation and file transcription.
-- **Zig capture daemon (v0.5)**: A resident ~500 KB binary owns the hotkey, microphone, streaming transport, and paste. Text streams in while you speak; no ffmpeg or Python startup on the hot path. See [docs/DAEMON.md](docs/DAEMON.md).
+- **Zig capture daemon (v0.5.1)**: A resident ~500 KB binary owns the hotkey, microphone, streaming transport, and paste. Text streams in while you speak; no ffmpeg or Python startup on the hot path. See [docs/DAEMON.md](docs/DAEMON.md).
 - **Finder Quick Action**: Transcribe any file with an audio stream that the local `ffmpeg` build can decode. The source file stays in place and `<file>.md` is saved beside it.
 - **Prime Agent skill**: Optional local transcription tools for Prime Agent.
 - **Automatic cleanup**: Live audio and pasted text are kept for a one-hour recovery window. Generated file transcripts are kept for seven days by default. Selected source files are never deleted. The engine sweeps expired data every 30 minutes while it runs, so storage stays bounded between restarts.
@@ -33,7 +30,7 @@
 | Memory | 8 GB | 16 GB or more |
 | macOS | 14.0 | Latest supported macOS |
 | Storage | About 3 GB | 5 GB free |
-| Tools | `uv`, `ffmpeg` | Homebrew, `uv`, `ffmpeg` |
+| Tools | `uv`, `zig`, `ffmpeg` | Homebrew, `uv`, `zig`, `ffmpeg` |
 
 ### Model and memory
 
@@ -43,112 +40,103 @@ Language detection uses a tiny helper model (about 80 MB) per utterance. This ke
 
 A clean-process test on a 16 GB Apple Silicon Mac transcribed a 48-second file in about 2.4–2.6 seconds. Benchmarks showed identical accuracy to full-precision weights (0% word error rate on English, 0.8% on Italian samples).
 
-The app uses the MLX backend on Apple Silicon. The `faster-whisper` backend remains available for Intel Macs and other systems.
+The engine uses the MLX backend on Apple Silicon. The `faster-whisper` backend remains available for Intel Macs and other systems.
 
 ## Installation
 
-Install `ffmpeg` and the local engine:
+The supported install path is one command on macOS:
 
 ```bash
-brew install ffmpeg
-uv tool install --from git+https://github.com/gbrlpzz/transcribe transcribe --with mlx==0.32.1 --with mlx-whisper==0.4.3
-```
-
-For Intel Macs or other systems without MLX:
-
-```bash
-uv tool install --from git+https://github.com/gbrlpzz/transcribe transcribe --with faster-whisper
-```
-
-Build and install the menu-bar app:
-
-```bash
+brew install uv ffmpeg zig
 git clone https://github.com/gbrlpzz/transcribe.git
 cd transcribe
-make app-install
+make install
 ```
 
-Install the Finder Quick Action:
+`make install`:
+
+- installs the Python/MLX engine as the private `transcribe-engine` command;
+- builds and installs the Zig `transcribe` command;
+- installs the Finder Quick Action;
+- starts both local LaunchAgents at login;
+- installs the optional Prime Agent skill.
+
+The public command is always `transcribe`. The engine command is private and
+normally does not need to be called directly. The first run needs Microphone,
+Accessibility, and (for the event-tap fallback) Input Monitoring permission
+for `~/.local/bin/transcribe`.
+
+For Intel Macs or systems without MLX, `make install` selects
+`faster-whisper` automatically. The first run downloads the model to
+`~/.cache/huggingface/hub/`; later runs work offline.
+
+To install only the Finder action:
 
 ```bash
 make quick-action-install
 ```
 
-Optional Prime Agent skill:
-
-```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/gbrlpzz/transcribe/main/scripts/install-skill.sh)
-```
-
-The first run downloads the model to `~/.cache/huggingface/hub/`. Later runs work offline. macOS asks for Microphone and Accessibility access on first use.
-
 ## Usage
 
-### Dictation daemon (v0.5)
+### Dictation
 
-The Zig daemon is the dictation front end. Build it once, then run it beside the engine:
+The daemon starts automatically after `make install`. You can also start it
+in the foreground:
 
 ```bash
-cd daemon && zig build -Doptimize=ReleaseFast
-transcribe serve        # warm engine
-./daemon/zig-out/bin/transcribed run
+transcribe run
 ```
 
-Press `⌃␣` to start dictating; press again and the final text pastes at the cursor. Partials appear while you speak. See [docs/DAEMON.md](docs/DAEMON.md).
+Press `⌃␣`. Press it again to stop. The result is pasted into the focused app.
+If macOS reserves `⌃␣`, the daemon automatically uses `⌃⌥␣`. Partial text
+arrives while you speak.
 
-### Menu-bar app (legacy)
+Useful checks:
 
-Launch `/Applications/Transcribe.app`. A microphone icon appears in the menu bar.
-
-- Press `⌃␣` to start dictation.
-- Press `⌃␣` again to stop and transcribe.
-- Press `Esc` or click the HUD to cancel.
-- Use **Transcribe File…** to choose any media file with an audio track. `ffmpeg` handles the container and codec.
-- Use **Clean Up Old Recordings** to remove sessions older than the TTL.
-
-The result is pasted into the focused app. File transcription also writes a Markdown file beside the source.
+```bash
+transcribe --version
+transcribe doctor
+transcribe ping
+```
 
 ### Finder Quick Action
 
-Right-click any file in Finder and choose **Quick Actions → Transcribe**. Files without a decodable audio stream fail with the local `ffmpeg` reason. The source stays in its original folder. The transcript is written beside it as `<file>.md`.
+Right-click any file in Finder and choose **Quick Actions → Transcribe**.
+The source stays in place. The transcript is written beside it as `<file>.md`.
 
 ### Command line
 
 ```bash
-# Dictate from the terminal
-transcribe
-
-# Transcribe files
 transcribe file meeting.m4a
 transcribe file interview.mp3 notes.wav --language it
-
-# Run or inspect the local engine
-transcribe serve
-transcribe doctor
+transcribe serve                 # private engine server, normally automatic
 transcribe models
-
-# Clean expired live data and file transcripts
 transcribe clean
-
-# Change local settings
-transcribe config set language en
-transcribe config set hotkey "ctrl+space"
-transcribe config set live_cleanup_ttl_hours 1
-transcribe config set cleanup_ttl_hours 168
 ```
+
+`transcribe` is the single public command. File and engine commands are
+forwarded internally to `transcribe-engine`; users do not need to manage two
+commands.
 
 ### Prime Agent skill
 
 ```python
 import transcribe_skill
-
 result = await transcribe_skill.transcribe_audio("interview.m4a")
 print(result["text"])
-print(result["language"])
-
-await transcribe_skill.dictate()
-await transcribe_skill.clean()
 ```
+
+## Performance
+
+The daemon warms the Core Audio unit once at startup. On the reference Apple
+Silicon Mac this warm-up took about **1.998 s once**. Each later activation
+measured **31–38 ms**, compared with about **219 ms** for the legacy ffmpeg
+startup path. These are measured values, not estimates.
+
+The daemon prints fast timings at the finest available clock precision. For
+example, a sub-millisecond value is shown as microseconds or nanoseconds. The
+streaming protocol also carries the raw `elapsed_ns` value so future
+optimizations do not lose precision through millisecond rounding.
 
 ## Configuration
 
@@ -156,7 +144,7 @@ Configuration is stored at `~/Library/Application Support/transcribe/config.json
 
 ```json
 {
-  "model": "turbo",
+  "model": "turbo-q4",
   "language": "auto",
   "backend": "auto",
   "paste": true,
@@ -168,7 +156,10 @@ Configuration is stored at `~/Library/Application Support/transcribe/config.json
 }
 ```
 
-The release profile uses the tested `turbo` model and one warm engine process. The engine accepts a raw model repository path for development, but other model profiles are not part of the supported app configuration.
+The release profile uses `turbo-q4` and one warm engine process. The daemon
+always uses automatic language detection. Its shortcut is fixed and its
+socket is fixed at `~/Library/Application Support/transcribe/dictation.sock`;
+those are not user settings.
 
 ## Privacy and storage
 
@@ -186,10 +177,11 @@ See [docs/PRIVACY.md](docs/PRIVACY.md).
 
 ```
 transcribe/
-├── app/               # Native macOS menu-bar app
-├── transcribe/        # Local Python engine, CLI, server, and storage
+├── daemon/            # Native Zig capture daemon and public transcribe binary
+├── transcribe/        # Private Python engine, CLI, server, and storage
 ├── skill/             # Optional Prime Agent skill
-├── docs/              # Architecture, privacy, model, and troubleshooting docs
+├── docs/              # Architecture, daemon, privacy, model, troubleshooting
+├── bench/             # Reproducible performance benchmarks and results
 ├── tests/             # Python tests
 ├── Makefile           # Build, test, and install commands
 └── pyproject.toml     # Python package metadata
@@ -200,8 +192,8 @@ transcribe/
 ```bash
 make venv
 make test
-make app
-make app-install
+make daemon-test
+make daemon
 make doctor
 ```
 

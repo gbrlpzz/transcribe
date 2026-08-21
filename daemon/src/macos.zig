@@ -1,4 +1,4 @@
-//! Hand-written macOS C bindings for the small surface transcribed needs.
+//! Hand-written macOS C bindings for the small surface transcribe needs.
 //!
 //! Zig 0.16's @cImport cannot resolve framework-style includes with this
 //! CommandLineTools SDK layout, so we declare the stable ABIs directly.
@@ -202,6 +202,8 @@ pub extern "c" fn RegisterEventHotKey(
     outRef: ?*EventHotKeyRef,
 ) OSStatus;
 pub extern "c" fn GetApplicationEventTarget() EventTargetRef;
+pub extern "c" fn RemoveEventHandler(handler: EventHandlerRef) OSStatus;
+pub extern "c" fn UnregisterEventHotKey(hot_key: EventHotKeyRef) OSStatus;
 pub extern "c" fn GetEventKind(inEvent: EventRef) u32;
 pub extern "c" fn RunApplicationEventLoop() void;
 
@@ -220,9 +222,15 @@ pub const kPasteboardClipboard = "com.apple.pasteboard.clipboard";
 pub const kUTTypeUTF8PlainText = "public.utf8-plain-text";
 
 pub const kCGHIDEventTap: u32 = 0;
+pub const kCGSessionEventTap: u32 = 1;
+pub const kCGHeadInsertEventTap: u32 = 0;
+pub const kCGEventTapOptionListenOnly: u32 = 1;
 pub const kCGEventKeyDown: u32 = 10;
 pub const kCGEventKeyUp: u32 = 11;
+pub const kCGEventFlagMaskControl: CGEventFlags = 0x0004_0000;
 pub const kCGEventFlagMaskCommand: CGEventFlags = 0x0010_0000;
+pub const kCGKeyboardEventKeycode: u32 = 9;
+pub const kCGKeyboardEventAutorepeat: u32 = 8;
 
 pub extern "c" fn CFStringCreateWithCString(
     alloc: CFAllocatorRef,
@@ -235,6 +243,28 @@ pub extern "c" fn CFDataCreate(
     length: isize,
 ) CFDataRef;
 pub extern "c" fn CFRelease(cf: ?*anyopaque) void;
+pub extern "c" var kCFRunLoopCommonModes: CFStringRef;
+pub extern "c" fn CFRunLoopGetCurrent() ?*anyopaque;
+pub extern "c" fn CFRunLoopAddSource(run_loop: ?*anyopaque, source: ?*anyopaque, mode: CFStringRef) void;
+pub extern "c" fn CFRunLoopRun() void;
+pub extern "c" fn CFMachPortCreateRunLoopSource(allocator: CFAllocatorRef, port: ?*anyopaque, order: isize) ?*anyopaque;
+
+pub const CGEventTapCallback = ?*const fn (
+    proxy: ?*anyopaque,
+    event_type: u32,
+    event: CGEventRef,
+    user_info: ?*anyopaque,
+) callconv(.c) CGEventRef;
+pub extern "c" fn CGEventTapCreate(
+    tap: u32,
+    place: u32,
+    options: u32,
+    events_of_interest: u64,
+    callback: CGEventTapCallback,
+    user_info: ?*anyopaque,
+) ?*anyopaque;
+pub extern "c" fn CGEventGetFlags(event: CGEventRef) CGEventFlags;
+pub extern "c" fn CGEventGetIntegerValueField(event: CGEventRef, field: u32) i64;
 
 pub extern "c" fn PasteboardCreate(inName: CFStringRef, outPasteboard: *PasteboardRef) OSStatus;
 pub extern "c" fn PasteboardClear(pasteboard: PasteboardRef) OSStatus;

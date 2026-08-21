@@ -1,4 +1,4 @@
-//! transcribed — resident capture daemon for Transcribe.
+//! transcribe — resident capture daemon for Transcribe.
 //!
 //! Zero-config by design: fixed hotkey (control+space), language always auto,
 //! fixed socket path. The user never configures anything; they trigger
@@ -16,10 +16,12 @@ const engine = @import("engine.zig");
 const hotkey = @import("hotkey.zig");
 const paste = @import("paste.zig");
 
-const version = "0.5.0";
+const version = "0.5.1";
 const sock_env = "TRANSCRIBE_DICTATION_SOCK";
+const home_env = "TRANSCRIBE_HOME";
 
 var home_dir: []const u8 = "/tmp";
+var transcribe_home: ?[]const u8 = null;
 var app_io: std.Io = undefined;
 
 // --- protocol framing helpers (shared with tests) ------------------------------
@@ -52,14 +54,14 @@ test "framing roundtrip sizes" {
 
 fn usage() void {
     std.debug.print(
-        \\transcribed {s} — resident dictation daemon (zero-config)
+        \\transcribe {s} — resident dictation daemon (zero-config)
         \\
         \\Usage:
-        \\  transcribed run                    start the daemon (hotkey: control+space)
-        \\  transcribed once [--ms N]          one timed mic session (dev)
-        \\  transcribed pipe <16k-mono.wav>    stream a wav through the pipeline (dev/bench)
-        \\  transcribed ping                   check the engine socket
-        \\  transcribed --version
+        \\  transcribe run                    start the daemon (hotkey: control+space)
+        \\  transcribe once [--ms N]          one timed mic session (dev)
+        \\  transcribe pipe <16k-mono.wav>    stream a wav through the pipeline (dev/bench)
+        \\  transcribe ping                   check the engine socket
+        \\  transcribe --version
         \\
     , .{version});
 }
@@ -67,6 +69,7 @@ fn usage() void {
 pub fn main(init: std.process.Init) !void {
     app_io = init.io;
     if (init.environ_map.get("HOME")) |h| home_dir = h;
+    if (init.environ_map.get(home_env)) |h| transcribe_home = h;
     if (init.environ_map.get(sock_env)) |p| sock_override = p;
 
     var iter = init.minimal.args.iterate();
@@ -77,7 +80,10 @@ pub fn main(init: std.process.Init) !void {
     var args_list: std.ArrayList([]const u8) = .empty;
     while (iter.next()) |arg| {
         if (std.mem.eql(u8, arg, "--version")) {
-            std.debug.print("transcribed {s}\n", .{version});
+            std.debug.print("transcribe {s}\n", .{version});
+            return;
+        } else if (std.mem.eql(u8, arg, "--help")) {
+            usage();
             return;
         } else if (cmd == null and !std.mem.startsWith(u8, arg, "-")) {
             cmd = arg;
@@ -89,7 +95,7 @@ pub fn main(init: std.process.Init) !void {
     defer args_list.deinit(init.gpa);
 
     if (cmd == null) {
-        usage();
+        try runCmd(init.gpa);
         return;
     }
     if (std.mem.eql(u8, cmd.?, "ping")) {
@@ -108,7 +114,25 @@ pub fn main(init: std.process.Init) !void {
         try pipeCmd(init.gpa, cmd_args);
         return;
     }
-    usage();
+    try delegateToPython(init);
+}
+
+fn delegateToPython(init: std.process.Init) !void {
+    // One public command: daemon commands stay native, engine/file commands
+    // are handed to the private Python implementation.
+    var argv: [64]?[*:0]u8 = [_]?[*:0]u8{null} ** 64;
+    const args = init.minimal.args.vector;
+    if (args.len >= argv.len) return error.TooManyArguments;
+    argv[0] = @constCast("transcribe-engine");
+    var n: usize = 1;
+    var i: usize = 1;
+    while (i < args.len) : (i += 1) {
+        argv[n] = @constCast(args[i]);
+        n += 1;
+    }
+    argv[n] = null;
+    _ = libc.execvp("transcribe-engine", @ptrCast(&argv));
+    return error.EngineDelegateFailed;
 }
 
 var sock_override: ?[]const u8 = null;
@@ -118,6 +142,23 @@ const timespec = extern struct { sec: isize, nsec: isize };
 extern "c" fn clock_gettime(clk_id: c_int, tp: *timespec) c_int;
 extern "c" fn nanosleep(req: *const timespec, rem: ?*timespec) c_int;
 const CLOCK_MONOTONIC_RAW: c_int = 4;
+const libc = struct {
+    extern "c" fn execvp(file: [*:0]const u8, argv: [*:null]?[*:0]u8) c_int;
+};
+
+fn printDuration(ns: u64) void {
+    if (ns == 0) {
+        std.debug.print("unmeasured", .{});
+    } else if (ns < 1_000) {
+        std.debug.print("{d} ns", .{ns});
+    } else if (ns < 1_000_000) {
+        std.debug.print("{d}.{d:0>3} µs", .{ ns / 1_000, ns % 1_000 });
+    } else if (ns < 1_000_000_000) {
+        std.debug.print("{d}.{d:0>6} ms", .{ ns / 1_000_000, ns % 1_000_000 });
+    } else {
+        std.debug.print("{d}.{d:0>9} s", .{ ns / 1_000_000_000, ns % 1_000_000_000 });
+    }
+}
 
 fn nowNs() i128 {
     var ts: timespec = undefined;
@@ -132,7 +173,9 @@ fn sleepMs(ms: u64) void {
 
 fn sockPath(buf: []u8) ![]const u8 {
     if (sock_override) |p| return p;
-    return std.fmt.bufPrint(buf, "{s}/.cache/transcribe/dictation.sock", .{home_dir});
+    // Match transcribe.config.default_home() on macOS.
+    if (transcribe_home) |h| return std.fmt.bufPrint(buf, "{s}/dictation.sock", .{h});
+    return std.fmt.bufPrint(buf, "{s}/Library/Application Support/transcribe/dictation.sock", .{home_dir});
 }
 
 fn pingCmd() !void {
@@ -158,11 +201,11 @@ fn acquireSingleInstance() !void {
     var dbuf: [512]u8 = undefined;
     var lbuf: [512]u8 = undefined;
     const dir_path = try cacheDir(&dbuf);
-    const lock_path = try std.fmt.bufPrint(&lbuf, "{s}/transcribed.lock", .{dir_path});
+    const lock_path = try std.fmt.bufPrint(&lbuf, "{s}/transcribe.lock", .{dir_path});
     const file = try std.Io.Dir.createFileAbsolute(app_io, lock_path, .{ .truncate = false });
     const got_lock = try file.tryLock(app_io, .exclusive);
     if (!got_lock) {
-        std.debug.print("transcribed already running\n", .{});
+        std.debug.print("transcribe already running\n", .{});
         file.close(app_io);
         return error.AlreadyRunning;
     }
@@ -234,7 +277,7 @@ fn runSession(alloc: std.mem.Allocator, opts: SessionOpts) !void {
     var sock_buf: [512]u8 = undefined;
     const sock_path = try sockPath(&sock_buf);
 
-    final_result.arrived.store(false, .release);
+    final_result.reset();
     var client = try engine.Client.connect(alloc, sock_path);
     defer client.close();
 
@@ -257,7 +300,12 @@ fn runSession(alloc: std.mem.Allocator, opts: SessionOpts) !void {
         ring_storage = try std.heap.page_allocator.alloc(u8, 1 << 20);
         ring = audio.Ring.init(ring_storage.?);
         capture = audio.Capture.init(&ring);
+        const capture_start_ns = nowNs();
         try capture.?.start();
+        const capture_ready_ns: u64 = @intCast(nowNs() - capture_start_ns);
+        std.debug.print("capture ready in ", .{});
+        printDuration(capture_ready_ns);
+        std.debug.print("\n", .{});
         const deadline = nowNs() + opts.duration_ms * std.time.ns_per_ms;
         var buf: [64000]u8 = undefined; // coalesce up to ~2 s per frame
         while (nowNs() < deadline) {
@@ -296,7 +344,9 @@ fn runSession(alloc: std.mem.Allocator, opts: SessionOpts) !void {
                 alloc.free(text);
             },
             .final => |f| {
-                std.debug.print("{s} ({d} ms)\n", .{ f.text, f.elapsed_ms });
+                std.debug.print("{s} (", .{f.text});
+                printDuration(f.elapsed_ns);
+                std.debug.print(")\n", .{});
                 if (opts.paste) paste.pasteText(f.text) catch |err| {
                     std.debug.print("paste failed: {s}\n", .{@errorName(err)});
                 };
@@ -319,7 +369,7 @@ fn onceCmd(alloc: std.mem.Allocator, args: []const []const u8) !void {
 
 fn pipeCmd(alloc: std.mem.Allocator, args: []const []const u8) !void {
     if (args.len == 0 or std.mem.startsWith(u8, args[0], "-")) {
-        std.debug.print("usage: transcribed pipe <16k-mono.wav> [--no-paste]\n", .{});
+        std.debug.print("usage: transcribe pipe <16k-mono.wav> [--no-paste]\n", .{});
         return error.Usage;
     }
     var opts = try parseSessionOpts(args[1..]);
@@ -332,21 +382,38 @@ fn pipeCmd(alloc: std.mem.Allocator, args: []const []const u8) !void {
 const State = enum { idle, recording };
 
 var hotkey_pressed = std.atomic.Value(bool).init(false);
-var hk: hotkey.Hotkey = .{ .pressed = &hotkey_pressed };
+var hotkey_wake: std.Io.Semaphore = .{};
+var hk: hotkey.Hotkey = .{
+    .pressed = &hotkey_pressed,
+    .wake = &hotkey_wake,
+    .io = &app_io,
+};
 
 /// Shared result slot between the event-reader thread and the worker.
-/// Uses an atomic flag + polling instead of a condvar (wait granularity
-/// of a few ms is irrelevant next to transcription latency).
+/// The worker is woken by the hotkey semaphore; this slot only coordinates
+/// the final event with the stop path.
 const FinalResult = struct {
     arrived: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
+    failed: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
     text: [8192]u8 = undefined,
     text_len: usize = 0,
-    elapsed_ms: u64 = 0,
+    elapsed_ns: u64 = 0,
 
-    fn set(self: *FinalResult, text: []const u8, elapsed_ms: u64) void {
+    fn reset(self: *FinalResult) void {
+        self.failed.store(false, .release);
+        self.arrived.store(false, .release);
+    }
+
+    fn set(self: *FinalResult, text: []const u8, elapsed_ns: u64) void {
         self.text_len = @min(text.len, self.text.len);
         @memcpy(self.text[0..self.text_len], text[0..self.text_len]);
-        self.elapsed_ms = elapsed_ms;
+        self.elapsed_ns = elapsed_ns;
+        self.failed.store(false, .release);
+        self.arrived.store(true, .release);
+    }
+
+    fn fail(self: *FinalResult) void {
+        self.failed.store(true, .release);
         self.arrived.store(true, .release);
     }
 
@@ -378,17 +445,41 @@ fn runCmd(alloc: std.mem.Allocator) !void {
         .alloc = alloc,
         .sock_path = sock_path,
     };
+    const audio_prepare_start_ns = nowNs();
+    worker.prepareCapture() catch |err| {
+        std.debug.print("warning: audio warm-up failed ({s}); first press will retry\n", .{@errorName(err)});
+    };
+    if (worker.capture != null) {
+        const audio_prepare_ns: u64 = @intCast(nowNs() - audio_prepare_start_ns);
+        std.debug.print("audio ready in ", .{});
+        printDuration(audio_prepare_ns);
+        std.debug.print("\n", .{});
+    }
     const t = try std.Thread.spawn(.{}, workerLoop, .{&worker});
 
+    var hotkey_ok = true;
     hk.install() catch |err| {
+        hotkey_ok = false;
         std.debug.print(
-            "warning: hotkey unavailable ({s}); running without trigger\n",
+            "warning: hotkey unavailable ({s}); grant Accessibility/Input Monitoring\n",
             .{@errorName(err)},
         );
     };
 
-    std.debug.print("transcribed {s} ready — control+space toggles dictation\n", .{version});
-    mac.RunApplicationEventLoop();
+    const shortcut = if (!hotkey_ok)
+        "unavailable"
+    else if (hk.using_tap)
+        "control+space (event tap)"
+    else if (hk.using_fallback)
+        "control+option+space"
+    else
+        "control+space";
+    std.debug.print("transcribe {s} ready — {s} toggles dictation\n", .{ version, shortcut });
+    if (hotkey_ok and hk.using_tap) {
+        mac.CFRunLoopRun();
+    } else {
+        mac.RunApplicationEventLoop();
+    }
     t.join(); // unreachable in practice; RunApplicationEventLoop does not return
 }
 
@@ -404,6 +495,23 @@ const Worker = struct {
     ring: audio.Ring = undefined,
     ring_init: bool = false,
 
+    fn prepareCapture(self: *Worker) !void {
+        if (self.capture != null) return;
+        self.ring_storage = try std.heap.page_allocator.alloc(u8, 1 << 20);
+        errdefer {
+            std.heap.page_allocator.free(self.ring_storage.?);
+            self.ring_storage = null;
+        }
+        self.ring = audio.Ring.init(self.ring_storage.?);
+        self.ring_init = true;
+        self.capture = audio.Capture.init(&self.ring);
+        errdefer {
+            self.capture = null;
+            self.ring_init = false;
+        }
+        try self.capture.?.prepare();
+    }
+
     fn toggle(self: *Worker) void {
         switch (self.state) {
             .idle => self.startSession(),
@@ -412,6 +520,7 @@ const Worker = struct {
     }
 
     fn startSession(self: *Worker) void {
+        const activation_start_ns = nowNs();
         self.client = engine.Client.connect(self.alloc, self.sock_path) catch {
             std.debug.print("engine not reachable at {s} — start `transcribe serve` first\n", .{self.sock_path});
             return;
@@ -425,7 +534,7 @@ const Worker = struct {
         };
 
         // Wait briefly for ready so errors surface early.
-        final_result.arrived.store(false, .release);
+        final_result.reset();
         self.reader_stop.store(false, .release);
         self.reader_thread = std.Thread.spawn(.{}, readerLoop, .{&self.client.?}) catch |err| {
             std.debug.print("reader spawn failed: {s}\n", .{@errorName(err)});
@@ -433,22 +542,27 @@ const Worker = struct {
             return;
         };
 
-        const ring_storage = std.heap.page_allocator.alloc(u8, 1 << 20) catch {
+        self.prepareCapture() catch |err| {
+            std.debug.print("capture preparation failed: {s}\n", .{@errorName(err)});
             self.teardownClient();
             return;
         };
-        self.ring_storage = ring_storage;
-        self.ring = audio.Ring.init(ring_storage);
-        self.ring_init = true;
-        self.capture = audio.Capture.init(&self.ring);
+        self.ring.reset();
         g_client = &self.client.?;
+        const capture_start_ns = nowNs();
         self.capture.?.start() catch |err| {
             std.debug.print("capture failed: {s} — grant microphone access\n", .{@errorName(err)});
             self.teardownClient();
             return;
         };
-                self.state = .recording;
-        std.debug.print("● recording\n", .{});
+        const capture_ready_ns: u64 = @intCast(nowNs() - capture_start_ns);
+        const activation_ns: u64 = @intCast(nowNs() - activation_start_ns);
+        self.state = .recording;
+        std.debug.print("● recording (ready ", .{});
+        printDuration(activation_ns);
+        std.debug.print(", capture ", .{});
+        printDuration(capture_ready_ns);
+        std.debug.print(")\n", .{});
     }
 
     fn stopSession(self: *Worker) void {
@@ -457,8 +571,8 @@ const Worker = struct {
         std.debug.print("■ transcribing…\n", .{});
 
         if (self.capture) |*cap| {
-            cap.stop();
-            self.capture = null;
+            // Keep the initialized AUHAL warm; only stop its live stream.
+            cap.pause();
         }
 
         // Drain whatever remains in the ring before telling the engine we're done.
@@ -468,11 +582,17 @@ const Worker = struct {
 
             // Wait for the final event from the reader thread.
             if (final_result.wait(30 * std.time.ns_per_s)) {
-                const text = final_result.text[0..final_result.text_len];
-                std.debug.print("→ {s} ({d} ms)\n", .{ text, final_result.elapsed_ms });
-                paste.pasteText(text) catch |err| {
-                    std.debug.print("paste failed: {s} — grant Accessibility\n", .{@errorName(err)});
-                };
+                if (final_result.failed.load(.acquire)) {
+                    std.debug.print("transcription stream failed\n", .{});
+                } else {
+                    const text = final_result.text[0..final_result.text_len];
+                    std.debug.print("→ {s} (", .{text});
+                    printDuration(final_result.elapsed_ns);
+                    std.debug.print(")\n", .{});
+                    if (text.len > 0) paste.pasteText(text) catch |err| {
+                        std.debug.print("paste failed: {s} — grant Accessibility\n", .{@errorName(err)});
+                    };
+                }
             } else {
                 std.debug.print("timed out waiting for transcription\n", .{});
             }
@@ -484,11 +604,6 @@ const Worker = struct {
             self.reader_thread = null;
         }
         self.teardownClient();
-        if (self.ring_storage) |rs| {
-            std.heap.page_allocator.free(rs);
-            self.ring_storage = null;
-            self.ring_init = false;
-        }
         g_client = null;
     }
 
@@ -516,7 +631,7 @@ fn readerLoop(client: *engine.Client) void {
     while (!final_result.arrived.load(.acquire)) {
         const ev = client.readEvent() catch {
             if (!final_result.arrived.load(.acquire)) {
-                final_result.set("", 0);
+                final_result.fail();
             }
             return;
         };
@@ -528,13 +643,13 @@ fn readerLoop(client: *engine.Client) void {
             },
             .final => |f| {
                 defer w_alloc().free(f.text);
-                final_result.set(f.text, f.elapsed_ms);
+                final_result.set(f.text, f.elapsed_ns);
                 return;
             },
             .error_msg => |msg| {
                 defer w_alloc().free(msg);
                 std.debug.print("engine error: {s}\n", .{msg});
-                final_result.set("", 0);
+                final_result.fail();
                 return;
             },
         }
@@ -547,9 +662,9 @@ fn w_alloc() std.mem.Allocator {
 
 fn workerLoop(w: *Worker) void {
     while (true) {
-        if (hotkey_pressed.swap(false, .acq_rel)) {
-            w.toggle();
-        }
-        sleepMs(20);
+        // The hotkey callback posts directly to this semaphore. There is no
+        // polling window and no 20 ms wake-up tax between key-up and capture.
+        hotkey_wake.waitUncancelable(app_io);
+        if (hotkey_pressed.swap(false, .acq_rel)) w.toggle();
     }
 }

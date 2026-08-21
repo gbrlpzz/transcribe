@@ -14,7 +14,7 @@ Whisper turbo model through the local engine. Audio stays on the Mac.
 - The user wants to dictate text.
 - The user wants to transcribe an audio or video file locally.
 - The user wants to inspect or clean old sessions.
-- The user wants to check or install the menu-bar app.
+- The user wants to check or install the local daemon and engine.
 
 ## Agent-facing API
 
@@ -29,19 +29,19 @@ The `transcribe_skill` module exposes:
 ## CLI
 
 ```bash
-transcribe                 # dictate and paste
+transcribe                 # run the resident dictation daemon
 transcribe file notes.m4a  # transcribe an existing file
 transcribe serve           # run the local engine
 transcribe clean           # remove expired sessions
 transcribe doctor          # check setup
 transcribe models          # show the tested model profile
 transcribe config set language it
-transcribe app build       # build the menu-bar app
+transcribe ping            # check the resident engine socket
 ```
 
 ## Workflow
 
-1. For dictation, call `dictate()` or tell the user to use the menu-bar hotkey.
+1. For dictation, call `dictate()` or tell the user to use the resident `⌃␣` hotkey.
 2. For files, call `transcribe_audio(path)` and report the text, language, model,
    and elapsed time.
 3. For cleanup, call `clean()` when the user asks to remove expired sessions.
@@ -51,8 +51,7 @@ transcribe app build       # build the menu-bar app
 ## Decision rules
 
 - The default language is `auto`.
-- The supported model profile is `turbo` (`mlx-community/whisper-turbo` on
-  Apple Silicon and `Systran/faster-whisper-turbo` on the fallback backend).
+- The supported model profile is `turbo-q4` (`mlx-community/whisper-large-v3-turbo-4bit` on Apple Silicon, with the pinned fallback backend on other Macs).
 - Do not upload audio or use a cloud fallback.
 - If the engine is missing, run `transcribe doctor` and install the local backend.
-- Sessions expire after the configured TTL, which defaults to 48 hours.
+- Sessions expire after the configured TTL, which defaults to one hour for live data and seven days for generated file transcripts.

@@ -11,7 +11,7 @@ pub fn build(b: *std.Build) void {
         .link_libc = true,
     });
     const exe = b.addExecutable(.{
-        .name = "transcribed",
+        .name = "transcribe",
         .root_module = exe_mod,
     });
     // Link macOS frameworks we bind directly.

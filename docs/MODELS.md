@@ -74,4 +74,4 @@ Remove an unused model cache only when its repository is no longer configured. D
 transcribe config set model turbo-q8   # or turbo-q4, turbo
 ```
 
-The engine also accepts a raw model repository path for development and testing. Raw paths are not part of the supported menu-bar configuration.
+The engine also accepts a raw model repository path for development and testing. Raw paths are not part of the supported daemon configuration.

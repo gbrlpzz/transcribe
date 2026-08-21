@@ -2,16 +2,44 @@
 
 All notable changes to Transcribe are documented here.
 
+## [0.5.1] - 2026-08-21
+
+A measured maintenance release for the Zig rewrite.
+
+### Fixed
+
+- The public executable is now named `transcribe`; the Python engine is
+  private and installed as `transcribe-engine`.
+- Carbon hotkey registration now passes the required retained references.
+  `⌃␣` works when available, with automatic `⌃⌥␣` fallback when macOS reserves
+  the primary shortcut.
+- The daemon and engine now use the same default Unix socket under
+  `~/Library/Application Support/transcribe/`.
+- Core Audio is prepared once at daemon startup. Per-press activation is
+  measured instead of being rounded to zero.
+- The installer now upgrades the engine, builds the ReleaseFast daemon,
+  installs the Finder Quick Action, and reloads both LaunchAgents in one step.
+- Fast timings keep nanosecond precision through the streaming protocol and
+  display in nanoseconds, microseconds, milliseconds, or seconds as needed.
+
+### Measured reference timings
+
+- Core Audio warm-up: **1.998 s once** at daemon startup.
+- Per-press activation: **31–38 ms** after warm-up.
+- Legacy ffmpeg capture startup: **about 219 ms**.
+
 ## [0.5.0] - 2026-08-21
 
-The Zig rewrite of the dictation hot path. Everything latency-critical moves
-into a resident, zero-config daemon; the Python engine keeps only the model.
+The Zig rewrite of the dictation hot path. The initial 0.5.0 timing estimate
+is superseded by the measured values in 0.5.1. Everything latency-critical
+moves into a resident, zero-config daemon; the Python engine keeps only the
+model.
 
 Measured on the reference machine (9 s speech clip, turbo-q4 warm):
 
 | Metric | 0.4.0 | 0.5.0 |
 |---|---|---|
-| Capture start overhead per press | ~219 ms (ffmpeg spawn) | ~0 ms (resident unit) |
+| Capture start overhead per press | ~219 ms (ffmpeg spawn) | ~31–38 ms (warm AUHAL activation) |
 | First text visible | after full decode (~1.1 s after key-up) | during speech (first partial ~5.8 s into a 9 s clip, at the first sentence pause) |
 | Paste path | pbcopy + osascript subprocesses (~97 ms) | CGEvent direct (~1 ms) |
 | Hot-path processes per press | python + ffmpeg + pbcopy + osascript | none (daemon already resident) |
@@ -19,7 +47,7 @@ Measured on the reference machine (9 s speech clip, turbo-q4 warm):
 
 ### Added
 
-- `daemon/`: `transcribed`, a Zig capture daemon. Carbon global hotkey
+- `daemon/`: `transcribe`, a Zig capture daemon. Carbon global hotkey
   (control+space), Core Audio capture with an s16le/16 kHz client format
   (AUHAL converts; the render callback commits straight into a lock-free
   ring), Unix-socket streaming client, and native CGEvent paste.
@@ -30,7 +58,7 @@ Measured on the reference machine (9 s speech clip, turbo-q4 warm):
   `docs/DAEMON.md`.
 - `bench/bench_streaming.py`: whole-file vs streaming latency benchmark;
   results in `bench/results/streaming.json`.
-- Dev commands: `transcribed once` (timed mic session) and `transcribed pipe`
+- Dev commands: `transcribe once` (timed mic session) and `transcribe pipe`
   (replay a wav through the full pipeline).
 
 ### Changed

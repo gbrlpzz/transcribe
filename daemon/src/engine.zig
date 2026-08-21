@@ -33,7 +33,7 @@ const c = struct {
 pub const Event = union(enum) {
     ready,
     partial: []u8, // owned by receiver's allocator
-    final: struct { text: []u8, elapsed_ms: u64 },
+    final: struct { text: []u8, elapsed_ns: u64 },
     error_msg: []u8,
 };
 
@@ -150,13 +150,19 @@ pub const Client = struct {
                 self.alloc.free(payload);
                 return error.BadJson;
             };
-            var elapsed: u64 = 0;
-            if (obj.get("elapsed_ms")) |e| {
-                if (e == .integer) elapsed = @intCast(@max(0, e.integer));
+            var elapsed_ns: u64 = 0;
+            if (obj.get("elapsed_ns")) |e| {
+                if (e == .integer) elapsed_ns = @intCast(@max(0, e.integer));
+            }
+            // Read older v1 servers without losing compatibility.
+            if (elapsed_ns == 0) {
+                if (obj.get("elapsed_ms")) |e| {
+                    if (e == .integer) elapsed_ns = @as(u64, @intCast(@max(0, e.integer))) * std.time.ns_per_ms;
+                }
             }
             const copy = try self.alloc.dupe(u8, text_v.string);
             self.alloc.free(payload);
-            return .{ .final = .{ .text = copy, .elapsed_ms = elapsed } };
+            return .{ .final = .{ .text = copy, .elapsed_ns = elapsed_ns } };
         }
         if (std.mem.eql(u8, kind, "error")) {
             const msg = obj.get("msg") orelse {

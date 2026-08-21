@@ -16,7 +16,7 @@ Protocol v1 (fixed contract with the daemon):
   ``{"op": "stop"}``.
 - Server -> client events: ``{"ev": "ready"}`` after start,
   ``{"ev": "partial", "text": ...}`` after each chunk decode,
-  ``{"ev": "final", "text": ..., "elapsed_ms": ...}`` after stop, and
+  ``{"ev": "final", "text": ..., "elapsed_ms": ..., "elapsed_ns": ...}`` after stop, and
   ``{"ev": "error", "msg": ...}`` on failure.
 
 Audio pipeline: an energy VAD gates silence out, speech is buffered and
@@ -176,7 +176,8 @@ class DictationSession:
         self.speech_ms = 0
         self.seen_any_speech = False
         self.text_parts: list[str] = []
-        self.started = time.time()
+        self.started_ns = time.perf_counter_ns()
+        self.elapsed_ns = 0
 
     def feed(self, pcm: bytes) -> list[str]:
         """Consume PCM; returns partial texts to emit (may be empty)."""
@@ -210,11 +211,12 @@ class DictationSession:
                 partials.extend(self._decode())
         return partials
 
-    def stop(self) -> tuple[str, float]:
-        """Finalize; returns (full text, elapsed ms, trailing partials)."""
+    def stop(self) -> tuple[str, int, list[str]]:
+        """Finalize; return text, rounded milliseconds, and trailing partials."""
         final_partials = self._decode(force=True)
-        elapsed = (time.time() - self.started) * 1000.0
-        return " ".join(self.text_parts).strip(), elapsed, final_partials
+        self.elapsed_ns = time.perf_counter_ns() - self.started_ns
+        elapsed_ms = round(self.elapsed_ns / 1_000_000)
+        return " ".join(self.text_parts).strip(), elapsed_ms, final_partials
 
     def _buffered_ms(self) -> float:
         return len(self.buffer) / 32.0  # 16 kHz * 2 bytes = 32 bytes/ms
@@ -388,7 +390,8 @@ class StreamServer:
                     for part in extra:
                         send_event(conn, {"ev": "partial", "text": part})
                     send_event(conn, {"ev": "final", "text": text,
-                                      "elapsed_ms": round(elapsed)})
+                                      "elapsed_ms": elapsed,
+                                      "elapsed_ns": session.elapsed_ns})
                     session = None
                 elif op == "cancel":
                     session = None
@@ -402,6 +405,23 @@ class StreamServer:
                     return
                 for part in session.feed(payload):
                     send_event(conn, {"ev": "partial", "text": part})
+
+
+def format_elapsed_ns(elapsed_ns: int) -> str:
+    """Format a monotonic duration without rounding a fast path to zero.
+
+    ``perf_counter_ns`` is the finest clock exposed by this process. Keep all
+    nanoseconds in the display while choosing a readable larger unit.
+    """
+    if elapsed_ns == 0:
+        return "unmeasured"
+    if elapsed_ns < 1_000:
+        return f"{elapsed_ns} ns"
+    if elapsed_ns < 1_000_000:
+        return f"{elapsed_ns / 1_000:.3f} µs"
+    if elapsed_ns < 1_000_000_000:
+        return f"{elapsed_ns / 1_000_000:.6f} ms"
+    return f"{elapsed_ns / 1_000_000_000:.9f} s"
 
 
 # --- CLI ----------------------------------------------------------------------
@@ -454,7 +474,7 @@ def _selftest(sock_path: str) -> int:
     final = events[-1]
     assert final["ev"] == "final" and final["text"], final
     print(f"selftest OK: events={kinds} final={final['text']!r} "
-          f"elapsed_ms={final['elapsed_ms']}")
+          f"elapsed={format_elapsed_ns(final.get('elapsed_ns', final['elapsed_ms'] * 1_000_000))}")
     client.close()
     srv.stop()
     return 0

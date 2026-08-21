@@ -61,6 +61,11 @@ pub const Ring = struct {
         }
     }
 
+    pub fn reset(self: *Ring) void {
+        self.tail.store(self.head.load(.acquire), .release);
+        self.dropped.store(0, .monotonic);
+    }
+
     pub fn read(self: *Ring, out: []u8) usize {
         const t = self.tail.load(.acquire);
         const avail: usize = @intCast(self.head.load(.acquire) - t);
@@ -77,6 +82,7 @@ pub const Ring = struct {
 pub const Capture = struct {
     unit: mac.AudioUnit = null,
     ring: ?*Ring = null,
+    active: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
     /// Fallback for the rare render that straddles the ring wrap.
     wrap_scratch: [4096]u8 align(16) = undefined,
 
@@ -84,7 +90,8 @@ pub const Capture = struct {
         return .{ .ring = ring };
     }
 
-    pub fn start(self: *Capture) !void {
+    pub fn prepare(self: *Capture) !void {
+        if (self.unit != null) return;
         var desc = mac.AudioComponentDescription{
             .componentType = mac.kAudioUnitType_Output,
             .componentSubType = mac.kAudioUnitSubType_HALOutput,
@@ -95,6 +102,7 @@ pub const Capture = struct {
         const comp = mac.AudioComponentFindNext(null, &desc);
         if (comp == null) return error.NoHalComponent;
         try check(mac.AudioComponentInstanceNew(comp, &self.unit));
+        errdefer self.disposeUnit();
 
         // Input on element 1, output off element 0.
         const one: u32 = 1;
@@ -129,14 +137,33 @@ pub const Capture = struct {
 
         var cb = mac.AURenderCallbackStruct{ .inputProc = onAudio, .inputProcRefCon = self };
         try check(mac.AudioUnitSetProperty(self.unit, mac.kAudioOutputUnitProperty_SetInputCallback, mac.kAudioUnitScope_Global, 0, &cb, @sizeOf(mac.AURenderCallbackStruct)));
-
         try check(mac.AudioUnitInitialize(self.unit));
-        try check(mac.AudioOutputUnitStart(self.unit));
+    }
+
+    pub fn start(self: *Capture) !void {
+        try self.prepare();
+        if (self.active.swap(true, .acq_rel)) return;
+        check(mac.AudioOutputUnitStart(self.unit)) catch |err| {
+            self.active.store(false, .release);
+            return err;
+        };
+    }
+
+    /// Stop receiving microphone frames but keep the initialized unit warm.
+    /// This is the low-latency path used between dictation sessions.
+    pub fn pause(self: *Capture) void {
+        if (self.active.swap(false, .acq_rel)) {
+            if (self.unit) |u| _ = mac.AudioOutputUnitStop(u);
+        }
     }
 
     pub fn stop(self: *Capture) void {
+        self.pause();
+        self.disposeUnit();
+    }
+
+    fn disposeUnit(self: *Capture) void {
         if (self.unit) |u| {
-            _ = mac.AudioOutputUnitStop(u);
             _ = mac.AudioUnitUninitialize(u);
             _ = mac.AudioComponentInstanceDispose(u);
             self.unit = null;
@@ -153,6 +180,7 @@ pub const Capture = struct {
     ) callconv(.c) mac.OSStatus {
         _ = io;
         const self: *Capture = @ptrCast(@alignCast(refcon orelse return -1));
+        if (!self.active.load(.acquire)) return 0;
         const ring = self.ring orelse return 0;
         const want = frames * 2; // s16le mono
 

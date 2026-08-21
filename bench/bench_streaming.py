@@ -1,4 +1,4 @@
-"""Benchmark: legacy dictate path vs streaming pipeline (v0.5.0).
+"""Benchmark: legacy dictate path vs streaming pipeline (v0.5.1).
 
 Measures, on the same machine and model:
 
@@ -6,7 +6,7 @@ Measures, on the same machine and model:
 2. Whole-file decode (legacy engine path) for a reference clip.
 3. Streaming session over protocol v1 fed at realtime pace: when partials
    arrive relative to speech position, and tail latency after speech ends.
-4. Daemon IPC overhead (`transcribed pipe` wall time minus server decode time).
+4. Daemon IPC overhead (`transcribe pipe` wall time minus server decode time).
 
 Usage:
     .venv/bin/python bench/bench_streaming.py [--wav /tmp/speech.wav] [--sock /tmp/bench.sock]
@@ -115,6 +115,7 @@ def bench_streaming(sock_path: str, pcm: bytes, realtime: bool = True) -> dict:
                 round((final["_t"] - t_send_end) * 1000) if final else None),
             "final_text": final["text"] if final else None,
             "final_elapsed_ms": final.get("elapsed_ms") if final else None,
+            "final_elapsed_ns": final.get("elapsed_ns") if final else None,
         }
         c.close()
         return out
@@ -150,7 +151,7 @@ def main() -> int:
     # Daemon IPC overhead: wall clock of `pipe` (non-realtime flood) minus
     # server-reported decode time.
     daemon = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                          "daemon", "zig-out", "bin", "transcribed")
+                          "daemon", "zig-out", "bin", "transcribe")
     if os.path.exists(daemon):
         env = dict(os.environ, TRANSCRIBE_DICTATION_SOCK=args.sock)
         srv = StreamServer(args.sock)
