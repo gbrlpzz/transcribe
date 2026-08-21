@@ -36,6 +36,10 @@
 
 Transcribe keeps one quantized `whisper-turbo` model warm (`turbo-q4`, 4-bit). The model weights use about 450 MB of memory, and the engine caps its reusable GPU cache at 256 MB, so the whole engine stays under about 0.9 GB — small enough to run next to heavy workloads.
 
+This footprint is a deliberate design constraint, not just a model-selection side effect. Transcribe is intended to remain resident all day alongside editors, browsers, development tools, and other memory-intensive work. The default engine therefore optimizes for the combined cost of **latency, memory, disk footprint, and transcription quality**, rather than maximum inference throughput in isolation. Larger or faster ASR stacks can win raw realtime-factor benchmarks, but that trade is not automatically useful for short interactive dictation once transcription is already comfortably faster than realtime.
+
+The practical target is a small warm engine with negligible activation overhead and fast enough inference that dictation feels immediate, without reserving several gigabytes of unified memory for an occasional foreground action. Alternative engines may be reconsidered when they improve the overall latency/footprint/quality tradeoff, rather than speed alone.
+
 Language detection uses a tiny helper model (about 80 MB) per utterance. This keeps automatic Italian/English switching fast: dictation results typically return in about one second for short utterances, with no fixed-language setup.
 
 A clean-process test on a 16 GB Apple Silicon Mac transcribed a 48-second file in about 2.4–2.6 seconds. Benchmarks showed identical accuracy to full-precision weights (0% word error rate on English, 0.8% on Italian samples).
