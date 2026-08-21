@@ -20,9 +20,7 @@
 
 - **Local and private**: Speech recognition runs on the Mac. The engine binds to `127.0.0.1`.
 - **One tested model**: 4-bit `whisper-turbo` stays warm for fast, low-footprint dictation and file transcription.
-- **Native menu-bar app**: Global hotkey, paste support, microphone recording, and setup checks.
-- **Notch HUD**: Apple-style status feedback with recording, transcription, result, error, and cancel states.
-- **Concurrent feedback**: Live dictation and file transcription have separate HUD states. A file is a large pill alone. During overlap, live dictation is on the left and the file is a spinner circle on the right.
+- **Zig capture daemon (v0.5)**: A resident ~500 KB binary owns the hotkey, microphone, streaming transport, and paste. Text streams in while you speak; no ffmpeg or Python startup on the hot path. See [docs/DAEMON.md](docs/DAEMON.md).
 - **Finder Quick Action**: Transcribe any file with an audio stream that the local `ffmpeg` build can decode. The source file stays in place and `<file>.md` is saved beside it.
 - **Prime Agent skill**: Optional local transcription tools for Prime Agent.
 - **Automatic cleanup**: Live audio and pasted text are kept for a one-hour recovery window. Generated file transcripts are kept for seven days by default. Selected source files are never deleted. The engine sweeps expired data every 30 minutes while it runs, so storage stays bounded between restarts.
@@ -86,7 +84,19 @@ The first run downloads the model to `~/.cache/huggingface/hub/`. Later runs wor
 
 ## Usage
 
-### Menu-bar app
+### Dictation daemon (v0.5)
+
+The Zig daemon is the dictation front end. Build it once, then run it beside the engine:
+
+```bash
+cd daemon && zig build -Doptimize=ReleaseFast
+transcribe serve        # warm engine
+./daemon/zig-out/bin/transcribed run
+```
+
+Press `⌃␣` to start dictating; press again and the final text pastes at the cursor. Partials appear while you speak. See [docs/DAEMON.md](docs/DAEMON.md).
+
+### Menu-bar app (legacy)
 
 Launch `/Applications/Transcribe.app`. A microphone icon appears in the menu bar.
 

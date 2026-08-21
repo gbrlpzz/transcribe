@@ -1,0 +1,26 @@
+{
+  "whole_file": {
+    "whole_file_ms": 1123.8853329996346,
+    "all_runs_ms": [
+      2788,
+      1114,
+      1124
+    ]
+  },
+  "streaming_realtime": {
+    "audio_seconds": 9.0,
+    "partials": [
+      "Hello, this is a test of the streaming dictation pipeline.",
+      "Quick brown fox jumps over the lazy dog. Pack my box with five dozen.",
+      "and liquor jugs"
+    ],
+    "first_partial_at_audio_pos_s": 5.82,
+    "tail_after_speech_end_ms": 1106,
+    "final_text": "Hello, this is a test of the streaming dictation pipeline. Quick brown fox jumps over the lazy dog. Pack my box with five dozen. and liquor jugs",
+    "final_elapsed_ms": 12972
+  },
+  "daemon_pipe": {
+    "wall_ms_flood": 3638,
+    "note": "includes process start, UDS connect, PCM flood, decode, teardown"
+  }
+}

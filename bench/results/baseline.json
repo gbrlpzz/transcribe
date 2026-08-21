@@ -1,0 +1,104 @@
+{
+  "meta": {
+    "generated_utc": "2026-08-21T07:51:54+00:00",
+    "platform": "macOS-26.2-arm64-arm-64bit-Mach-O",
+    "machine": "arm64",
+    "python": "3.13.5",
+    "transcribe_version": "0.4.0",
+    "total_bench_s": 10.58
+  },
+  "cli_import": {
+    "status": "ok",
+    "command": "import transcribe",
+    "runs_s": [
+      0.0116,
+      0.0117,
+      0.0113
+    ],
+    "min_s": 0.0113,
+    "median_s": 0.0116
+  },
+  "ffmpeg_capture": {
+    "status": "ok",
+    "device": ":0",
+    "recording_s": 0.5,
+    "entries": [
+      {
+        "total_s": 0.7091,
+        "overhead_s": 0.2091
+      },
+      {
+        "total_s": 0.7296,
+        "overhead_s": 0.2296
+      }
+    ],
+    "overhead_median_s": 0.2193
+  },
+  "wav_wrap": {
+    "status": "ok",
+    "buffer_s": 5.0,
+    "bytes": 160000,
+    "runs_s": [
+      0.0003,
+      0.0002,
+      0.0001,
+      0.0001,
+      0.0001,
+      0.0001,
+      0.0001,
+      0.0001,
+      0.0001,
+      0.0001
+    ],
+    "min_s": 0.0001,
+    "median_s": 0.0001
+  },
+  "paste": {
+    "status": "ok",
+    "chars": 75,
+    "accessibility": true,
+    "pbcopy_s": 0.0088,
+    "pbcopy_ok": true,
+    "osascript_s": 0.0885
+  },
+  "engine": {
+    "status": "ok",
+    "backend": "mlx",
+    "model": "mlx-community/whisper-large-v3-turbo-4bit",
+    "audio_s": 3.0,
+    "cold_s": 2.2047,
+    "warm_s": 1.9918,
+    "warm_reported_elapsed_s": 1.99,
+    "language_detected": "en",
+    "text_sample": "Thank you."
+  },
+  "server": {
+    "status": "ok",
+    "url": "http://127.0.0.1:8765",
+    "health": {
+      "status": "ok",
+      "model": "mlx-community/whisper-large-v3-turbo-4bit",
+      "backend": "mlx",
+      "warm": true
+    },
+    "health_roundtrip": {
+      "runs_s": [
+        0.0005,
+        0.0005,
+        0.0004
+      ],
+      "min_s": 0.0004,
+      "median_s": 0.0005
+    },
+    "transcribe_warm": {
+      "runs_s": [
+        1.9808,
+        2.0141
+      ],
+      "min_s": 1.9808,
+      "median_s": 1.9975,
+      "text_sample": "Thank you.",
+      "language": "en"
+    }
+  }
+}

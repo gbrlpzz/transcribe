@@ -21,3 +21,7 @@ app/dist/
 
 # macOS
 .DS_Store
+
+# Zig daemon
+daemon/.zig-cache/
+daemon/zig-out/
