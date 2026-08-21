@@ -12,7 +12,7 @@ Measured on the reference machine (9 s speech clip, turbo-q4 warm):
 | Metric | 0.4.0 | 0.5.0 |
 |---|---|---|
 | Capture start overhead per press | ~219 ms (ffmpeg spawn) | ~0 ms (resident unit) |
-| First text visible | after full decode (~1.1 s after key-up) | during speech (partials from ~1.8 s of audio) |
+| First text visible | after full decode (~1.1 s after key-up) | during speech (first partial ~5.8 s into a 9 s clip, at the first sentence pause) |
 | Paste path | pbcopy + osascript subprocesses (~97 ms) | CGEvent direct (~1 ms) |
 | Hot-path processes per press | python + ffmpeg + pbcopy + osascript | none (daemon already resident) |
 | Daemon binary footprint | — | ~500 KB, no runtime deps |
