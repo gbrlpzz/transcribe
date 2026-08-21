@@ -16,7 +16,7 @@ const engine = @import("engine.zig");
 const hotkey = @import("hotkey.zig");
 const paste = @import("paste.zig");
 
-const version = "0.1.0";
+const version = "0.5.0";
 const sock_env = "TRANSCRIBE_DICTATION_SOCK";
 
 var home_dir: []const u8 = "/tmp";

@@ -210,10 +210,23 @@ def serve(port: int | None = None, *, warm: bool | None = None, verbose: bool = 
         threading.Thread(target=_cleanup_loop, name="transcribe-cleanup",
                          daemon=True).start()
 
+    # The streaming dictation endpoint shares this process (and the warm
+    # model) with the HTTP server; the Zig daemon connects to it.
+    stream = None
+    try:
+        from transcribe.streamserver import StreamServer
+        stream = StreamServer()
+        stream.start()
+        print(f"[server] stream socket: {stream.sock_path}", flush=True)
+    except OSError as exc:
+        print(f"[server] stream socket unavailable: {exc}", flush=True)
+
     print(f"[server] listening on http://127.0.0.1:{port} — Ctrl-C to stop", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
+        if stream is not None:
+            stream.stop()
         server.server_close()
