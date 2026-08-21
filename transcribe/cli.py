@@ -56,7 +56,7 @@ def _parse() -> argparse.ArgumentParser:
     file_p.add_argument("-l", "--language", default="en",
                         help="transcription language (default: en for files)")
     file_p.add_argument("-m", "--model", default=None,
-                        help="model alias or HF repo (default: turbo)")
+                        help="model alias or HF repo (default: turbo-q4)")
     file_p.add_argument("--smart-text", dest="smart_text", action="store_true", default=None)
     file_p.add_argument("--no-smart-text", dest="smart_text", action="store_false")
     file_p.add_argument("--json", action="store_true", help="machine-readable output")

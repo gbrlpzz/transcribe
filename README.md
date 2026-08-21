@@ -19,13 +19,13 @@
 ## Features
 
 - **Local and private**: Speech recognition runs on the Mac. The engine binds to `127.0.0.1`.
-- **One tested model**: `whisper-turbo` stays warm for reliable dictation and file transcription.
+- **One tested model**: 4-bit `whisper-turbo` stays warm for fast, low-footprint dictation and file transcription.
 - **Native menu-bar app**: Global hotkey, paste support, microphone recording, and setup checks.
 - **Notch HUD**: Apple-style status feedback with recording, transcription, result, error, and cancel states.
 - **Concurrent feedback**: Live dictation and file transcription have separate HUD states. A file is a large pill alone. During overlap, live dictation is on the left and the file is a spinner circle on the right.
 - **Finder Quick Action**: Transcribe any file with an audio stream that the local `ffmpeg` build can decode. The source file stays in place and `<file>.md` is saved beside it.
 - **Prime Agent skill**: Optional local transcription tools for Prime Agent.
-- **Automatic cleanup**: Live audio and pasted text are kept for a one-hour recovery window. Generated file transcripts are kept for seven days by default. Selected source files are never deleted.
+- **Automatic cleanup**: Live audio and pasted text are kept for a one-hour recovery window. Generated file transcripts are kept for seven days by default. Selected source files are never deleted. The engine sweeps expired data every 30 minutes while it runs, so storage stays bounded between restarts.
 
 ## Requirements
 
@@ -39,7 +39,11 @@
 
 ### Model and memory
 
-Transcribe keeps one `whisper-turbo` model warm. The model weights use about 1.6 GB on disk. A clean-process test on a 16 GB Apple Silicon Mac used about 2.6 GB physical memory for a 51-second file. Long files can use more working memory.
+Transcribe keeps one quantized `whisper-turbo` model warm (`turbo-q4`, 4-bit). The model weights use about 450 MB of memory, and the engine caps its reusable GPU cache at 256 MB, so the whole engine stays under about 0.9 GB — small enough to run next to heavy workloads.
+
+Language detection uses a tiny helper model (about 80 MB) per utterance. This keeps automatic Italian/English switching fast: dictation results typically return in about one second for short utterances, with no fixed-language setup.
+
+A clean-process test on a 16 GB Apple Silicon Mac transcribed a 48-second file in about 2.4–2.6 seconds. Benchmarks showed identical accuracy to full-precision weights (0% word error rate on English, 0.8% on Italian samples).
 
 The app uses the MLX backend on Apple Silicon. The `faster-whisper` backend remains available for Intel Macs and other systems.
 
@@ -49,7 +53,7 @@ Install `ffmpeg` and the local engine:
 
 ```bash
 brew install ffmpeg
-uv tool install --from git+https://github.com/gbrlpzz/transcribe transcribe --with mlx==0.32.0 --with mlx-whisper==0.4.3
+uv tool install --from git+https://github.com/gbrlpzz/transcribe transcribe --with mlx==0.32.1 --with mlx-whisper==0.4.3
 ```
 
 For Intel Macs or other systems without MLX:

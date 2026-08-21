@@ -36,7 +36,7 @@ def default_home() -> str:
 @dataclass
 class Config:
     # --- transcription -----------------------------------------------------
-    model: str = "turbo"  # the tested release profile
+    model: str = "turbo-q4"         # fast 4-bit default; see transcribe.engine.MODELS
     language: str = "auto"          # "auto" | "en" | "it" | any ISO code
     backend: str = "auto"           # "auto" | "mlx" | "faster"
     # --- audio -------------------------------------------------------------
@@ -49,6 +49,9 @@ class Config:
     # can be pasted again. File jobs use the longer, user-visible TTL below.
     live_cleanup_ttl_hours: float = 1.0
     cleanup_ttl_hours: float = 168.0  # file transcript TTL; kept as a CLI-compatible name
+    # Periodic TTL sweep while the engine runs, so long-lived servers do not
+    # accumulate expired recordings and transcripts between restarts.
+    cleanup_interval_minutes: float = 30.0  # 0 disables the periodic sweep
     keep_transcripts: bool = True   # save a .json transcript next to each recording
     # --- local engine server ----------------------------------------------
     port: int = 8765
@@ -78,8 +81,11 @@ def load() -> Config:
             print(f"warning: could not read {path} ({exc}); using defaults", file=sys.stderr)
     known = {f.name for f in fields(Config)}
     values = {k: v for k, v in raw.items() if k in known and v is not None}
-    # Older releases had one TTL for every session. Preserve an explicitly
-    # configured value as the file TTL while using the new one-hour live default.
+    # Release 0.3.x shipped fp16 `turbo` as the only profile. That stored value
+    # was the default rather than a deliberate choice, so upgrade it to the
+    # faster 4-bit default. The explicit `turbo` alias remains selectable.
+    if values.get("model") == "turbo":
+        values["model"] = "turbo-q4"
     return Config(**values)
 
 

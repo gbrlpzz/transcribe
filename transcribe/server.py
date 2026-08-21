@@ -17,6 +17,7 @@ import argparse
 import json
 import os
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlparse
@@ -192,6 +193,23 @@ def serve(port: int | None = None, *, warm: bool | None = None, verbose: bool = 
             except Exception as exc:
                 print(f"[server] model load failed: {exc}", flush=True)
         threading.Thread(target=_warm, daemon=True).start()
+    # Expired live recordings and file transcripts are removed at startup and
+    # then swept periodically, so a long-running engine never accumulates data
+    # past the configured TTLs. The sweep touches only expired files, so it
+    # never interferes with an in-flight dictation.
+    interval_minutes = getattr(config, "cleanup_interval_minutes", 30.0)
+    if interval_minutes > 0:
+        def _cleanup_loop() -> None:
+            while True:
+                time.sleep(interval_minutes * 60)
+                try:
+                    clean(live_ttl_hours=config.live_cleanup_ttl_hours,
+                          file_ttl_hours=config.cleanup_ttl_hours)
+                except OSError:
+                    pass  # bookkeeping must never take the engine down
+        threading.Thread(target=_cleanup_loop, name="transcribe-cleanup",
+                         daemon=True).start()
+
     print(f"[server] listening on http://127.0.0.1:{port} — Ctrl-C to stop", flush=True)
     try:
         server.serve_forever()

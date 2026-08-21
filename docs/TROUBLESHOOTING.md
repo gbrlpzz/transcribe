@@ -22,13 +22,13 @@ The server listens only on `127.0.0.1:8765`.
 
 ## The first request is slow
 
-The first request downloads the `whisper-turbo` weights. The download is about 1.6 GB and happens once. Later requests use the local cache.
+The first request downloads the model weights. The default `turbo-q4` download is about 450 MB, plus about 80 MB for the language-detection helper, and happens once. Later requests use the local cache.
 
 Check the model cache:
 
 ```bash
 transcribe models
-du -sh ~/.cache/huggingface/hub/models--mlx-community--whisper-turbo
+du -sh ~/.cache/huggingface/hub/models--mlx-community--whisper-large-v3-turbo-4bit
 ```
 
 Do not start a second engine process on port `8765`. If an old process is still listening, restart the menu-bar app or stop that process before starting the server manually.
@@ -45,7 +45,7 @@ transcribe serve --port 8765
 If the error continues, reinstall the supported tool environment and keep the tested MLX versions:
 
 ```bash
-uv tool install --force --from git+https://github.com/gbrlpzz/transcribe transcribe --with mlx==0.32.0 --with mlx-whisper==0.4.3
+uv tool install --force --from git+https://github.com/gbrlpzz/transcribe transcribe --with mlx==0.32.1 --with mlx-whisper==0.4.3
 ```
 
 ## Finder does not show the Quick Action
