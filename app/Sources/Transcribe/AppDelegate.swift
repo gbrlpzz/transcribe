@@ -166,14 +166,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupItem.isHidden = true
         menu.addItem(setupItem)
 
+        // No keyboard-equivalent hints here on purpose: the global hotkey
+        // (default ^Space) is the one way to dictate, and advertising a second
+        // chord would invite conflicts. Menu items stay as click fallbacks.
         let dictate = NSMenuItem(title: "Dictate", action: #selector(toggleDictation),
-                                 keyEquivalent: "d")
+                                 keyEquivalent: "")
         dictate.target = self
-        dictate.keyEquivalentModifierMask = [.command, .option]
         menu.addItem(dictate)
 
         let file = NSMenuItem(title: "Transcribe File…", action: #selector(pickFile),
-                              keyEquivalent: "o")
+                              keyEquivalent: "")
         file.target = self
         menu.addItem(file)
 
