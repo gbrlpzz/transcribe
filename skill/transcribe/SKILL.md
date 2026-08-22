@@ -1,56 +1,103 @@
 ---
-name: "transcribe"
-description: "Fully local dictation and transcription (Whisper/MLX): dictate with the microphone, transcribe audio files, and manage the Transcribe engine, sessions, and cleanup."
-compatibility: prime-agent
+name: transcribe
+description: >
+  Local file transcription on a Mac using Transcribe (native Apple speech,
+  macOS 26+). Transcribe audio files to text or Markdown, check setup, and
+  manage language assets — fully on-device, no cloud, no server.
 ---
 
-# Transcribe — local dictation and transcription
+# Transcribe — local file transcription
 
-Transcribe is a local macOS dictation and transcription tool. It uses one warm
-4-bit Whisper turbo model through the local engine, with automatic per-utterance
-language detection. Audio stays on the Mac.
+Transcribe audio files on this Mac with the `transcribe` CLI. All speech
+processing runs on-device through Apple's native speech stack (macOS 26+).
+No server, no port, no cloud calls.
 
-## When to use
+## Setup
 
-- The user wants to dictate text.
-- The user wants to transcribe an audio or video file locally.
-- The user wants to inspect or clean old sessions.
-- The user wants to check or install the menu-bar app.
-
-## Agent-facing API
-
-The `transcribe_skill` module exposes:
-
-- `transcribe_audio(path, smart_text=None) -> dict`
-- `dictate(seconds=None, paste=False) -> dict`
-- `clean(ttl_hours=None, dry_run=False) -> list[str]`
-- `doctor() -> str`
-
-## CLI
+The CLI lives inside the app bundle:
 
 ```bash
-transcribe                 # dictate and paste
-transcribe file notes.m4a  # transcribe an existing file
-transcribe start           # start the background engine
-transcribe restart         # restart it (first fix for any hiccup)
-transcribe serve           # run the engine in the foreground
-transcribe clean           # remove expired sessions
-transcribe doctor          # check setup
-transcribe app build       # build the menu-bar app
+TRANSCRIBE_APP="${TRANSCRIBE_APP:-/Applications/Transcribe.app}"
+CLI="$TRANSCRIBE_APP/Contents/MacOS/transcribe"
 ```
 
-## Workflow
+Optional one-time setup so any shell can call `transcribe` directly:
 
-1. For dictation, call `dictate()` or tell the user to use the menu-bar hotkey.
-2. For files, call `transcribe_audio(path)` and report the text, language,
-   model, and elapsed time.
-3. For cleanup, call `clean()` when the user asks to remove expired sessions.
-4. On a new machine, install `ffmpeg`, install the engine, and run `transcribe doctor`.
+```bash
+ln -sf "$TRANSCRIBE_APP/Contents/MacOS/Transcribe" /usr/local/bin/transcribe
+```
+
+(The symlink name must be exactly lowercase `transcribe` — that is what
+selects CLI mode inside the single app binary.)
+
+First run may raise two one-time macOS prompts: Speech Recognition permission
+(approve once), and per-language voice assets downloaded by the OS on first
+use of that language.
+
+## Commands
+
+### Check setup
+
+```bash
+"$CLI" doctor
+"$CLI" doctor --json        # machine-readable
+```
+
+Reports macOS version, speech-stack availability, microphone + speech
+recognition permission, accessibility, app-bundle presence, and which
+languages are ready.
+
+### List languages / install language assets
+
+```bash
+"$CLI" languages            # readiness matrix
+"$CLI" languages --json
+"$CLI" languages --install it-IT   # fetch Apple language assets (progress on stderr)
+```
+
+Shipped set: English (`en-*`), Italian (`it-*`), German (`de-DE/AT/CH`),
+Spanish (`es-ES/MX/US`). A locale must be `ready` before files in it can be
+transcribed; installs can take minutes and are OS-managed after that.
+
+### Transcribe files
+
+```bash
+"$CLI" file recording.m4a             # prints transcript, writes recording.md beside it
+"$CLI" file a.wav b.m4a c.mp3         # sequential, one transcript each
+"$CLI" file notes.m4a --json          # machine-readable, one JSON object per line
+"$CLI" file talk.m4a --locale de-DE   # force a language (BCP-47 tag)
+"$CLI" file secret.wav --no-keep      # stdout only: no .md sidecar, no session record
+```
+
+`--json` line shape (keys sorted):
+
+```json
+{"elapsed_ms": 1710, "file": "notes.m4a", "language": "en-US", "md_path": "/path/notes.md", "text": "..."}
+```
+
+`md_path` is `""` under `--no-keep`. Without it, the transcript is also saved
+as `<name>.md` next to each file and archived in the sessions folder
+(`~/Library/Application Support/transcribe/sessions/<YYYYMMDD>/`; live data is
+cleaned up automatically after 1 hour, file transcripts after 7 days).
+
+Supported containers (read natively by macOS, no ffmpeg): WAV, AIFF, CAF,
+m4a/AAC, MP3. Exotic containers (mkv, webm) are rejected with exit code 3.
+
+## Exit codes
+
+| code | meaning |
+|---|---|
+| 0 | success |
+| 2 | usage error (unknown command/flag; there is no `serve`) |
+| 3 | file error (missing/unreadable/unsupported container) |
+| 4 | locale not ready or unsupported (`transcribe doctor`, then `languages --install <locale>`) |
+| 5 | transcription failure (incl. denied Speech Recognition permission) |
 
 ## Decision rules
 
-- Language is always automatic; there is no language parameter.
-- The model is fixed: 4-bit whisper-large-v3-turbo (`mlx-community/whisper-large-v3-turbo-4bit`) on MLX, Apple Silicon only.
-- Do not upload audio or use a cloud fallback.
-- If the engine is missing or misbehaving, run `transcribe doctor`, then `transcribe restart`.
-- Live sessions expire after one hour; generated file transcripts after seven days.
+- Language: use `--locale <ll-CC>` when the user names a language;
+  otherwise the configured default or auto-detection from system settings.
+- No model selection exists — Apple owns models and updates.
+- Do not upload audio anywhere or suggest cloud services.
+- If something fails: run `doctor --json`, fix what it flags, retry once.
+- Long files are fast: expect well under real-time (240 s ≈ 4 s on Apple Silicon).
