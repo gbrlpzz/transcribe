@@ -14,10 +14,10 @@ enum Paste {
         pb.clearContents()
         pb.setString(text, forType: .string)
 
-        // let the pasteboard settle before synthesizing Cmd+V
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
-            postCommandV()
-        }
+        // Pasteboard writes are synchronous: once setString returns, any
+        // target reading the general pasteboard sees the new string, so the
+        // synthetic Cmd+V can fire immediately (no settle wait).
+        postCommandV()
     }
 
     private static func postCommandV() {
