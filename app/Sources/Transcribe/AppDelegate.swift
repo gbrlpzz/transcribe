@@ -2,6 +2,7 @@ import AppKit
 import Carbon
 import AVFoundation
 import ApplicationServices
+import TranscribeCore
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
