@@ -37,8 +37,7 @@ public protocol DictationAudioSource: AnyObject, Sendable {
     var level: Float { get }
 }
 
-/// Hardware microphone tap. Replaces Recorder.swift's role on the native lane
-/// (Recorder stays compiled-but-unrouted until the W4 deletions ledger).
+/// Hardware microphone tap for the native dictation lane.
 public final class MicrophoneTapSource: DictationAudioSource, @unchecked Sendable {
     private let audioEngine = AVAudioEngine()
     private let lock = NSLock()
@@ -70,7 +69,7 @@ public final class MicrophoneTapSource: DictationAudioSource, @unchecked Sendabl
         audioEngine.stop()
     }
 
-    /// RMS → dB → the same 0…1 mapping Recorder.swift fed the waveform.
+    /// RMS → dB → the 0…1 waveform level.
     private func storeLevel(_ buffer: AVAudioPCMBuffer) {
         guard let ch = buffer.floatChannelData?[0] else { return }
         let n = Int(buffer.frameLength)

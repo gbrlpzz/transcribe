@@ -4,13 +4,17 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 echo "→ building Swift release binary…"
-swift build -c release --product Transcribe
+swift build -c release --product Transcribe \
+    -Xswiftc -Osize -Xlinker -dead_strip -Xlinker -s -Xlinker -no_function_starts
 
 APP="dist/Transcribe.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 cp .build/release/Transcribe "$APP/Contents/MacOS/Transcribe"
+# NOTE: no in-bundle "transcribe" alias - APFS is case-insensitive and the
+# lowercase name collides with "Transcribe". The CLI activates by linking the
+# bundle binary onto PATH (scripts/install-skill.sh does this).
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 if [[ -f Resources/AppIcon.icns ]]; then
     cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"

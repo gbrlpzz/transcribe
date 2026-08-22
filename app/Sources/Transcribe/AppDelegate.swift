@@ -1,9 +1,10 @@
 import AppKit
 import Carbon
-import AVFoundation
 import ApplicationServices
+import Speech
 import os
 import TranscribeCore
+import TranscribeCLI
 
 /// AppKit delegate: everything here runs on the main actor (menu bar app,
 /// single UI thread). The native dictation engine is @MainActor too, so the
@@ -12,32 +13,24 @@ import TranscribeCore
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var hotKey: HotKey?
-    private let recorder = Recorder()
     private let pill = DictationPill()
     private let filePill = DictationPill()
-    // Native lane (engine == "apple"): built only when routed; the mlx path
-    // below stays byte-for-byte 0.6.0 (cutover safety).
-    private var nativeEngine: SpeechDictationEngine?
+    private let localeManager = LocaleManager()
+    private let sessionStore = SessionStore()
+    private var nativeEngine: SpeechDictationEngine!
     private var nativeActive = false
     private let signposter = OSSignposter(subsystem: "app.transcribe", category: "dictation")
     private var fileHUDVisible = false
-    private var engine: EngineClient!
     private var config = AppConfig.load()
-    private var currentModelName: String?
 
-    // Live dictation and file jobs are independent. The engine serializes
-    // inference, but recording and file work can overlap without replacing
-    // each other's state or feedback.
     private enum LiveState { case idle, recording, transcribing }
     private var liveState: LiveState = .idle
     private var liveCancelled = false
-    private var liveRequestID: UUID?
-    private var liveTask: URLSessionDataTask?
 
     private var fileQueue: [URL] = []
     private var activeFileURL: URL?
     private var fileRequestID: UUID?
-    private var fileTask: URLSessionDataTask?
+    private var fileTask: Task<Void, Never>?
     private var pendingFileStatuses: [DictationPill.PillState] = []
     private var appReady = false
     private var queuedOpenURLs: [URL] = []
@@ -46,26 +39,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // menu handles
     private var setupItem: NSMenuItem!
-    private var engineItem: NSMenuItem!
-    private var enginePollTimer: Timer?
+    private var languageMenu: NSMenu!
 
     // MARK: - Lifecycle
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        engine = EngineClient(port: config.port)
+        nativeEngine = SpeechDictationEngine(localeManager: localeManager)
+        nativeEngine.onFailure = { [weak self] message in self?.handleNativeFailure(message) }
         setupStatusItem()
         setupHotKey()
         setupPill()
-        setupNativeLaneIfRouted()
-        engine.ensureEngineRunning { [weak self] ok in
-            self?.refreshEngineState()
-        }
-        // Menu open and every transcribe re-check health anyway; this slow poll
-        // only keeps the menu label fresh while the menu is closed.
-        enginePollTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
-            // RunLoop timers fire on the main thread.
-            MainActor.assumeIsolated { self?.checkEngine() }
-        }
+        Task { await localeManager.bootstrap() }
+        sessionStore.startSweeper(intervalMinutes: config.cleanupIntervalMinutes,
+                                  liveTTLHours: config.liveCleanupTTLHours,
+                                  fileTTLHours: config.cleanupTTLHours)
         appReady = true
         let urls = queuedOpenURLs
         queuedOpenURLs.removeAll()
@@ -74,9 +61,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func setupPill() {
-        // One animation clock: the waveform's own 60 Hz tick reads the recorder
-        // meter directly (no separate level timer).
-        pill.levelProvider = { [weak self] in self?.recorder.level() ?? 0 }
+        // One animation clock: the waveform reads the native input meter directly.
+        pill.levelProvider = { [weak self] in self?.nativeEngine.levelProvider() ?? 0 }
         pill.onCancel = { [weak self] _ in
             self?.cancelDictation()
         }
@@ -92,7 +78,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     // Finder and the Quick Action hand files over as open-file events.
-    // Defer them until the engine client exists on a cold launch.
+    // Defer them until the native lanes exist on a cold launch.
     func application(_ application: NSApplication, open urls: [URL]) {
         NSLog("Transcribe: received open URLs (%ld)", urls.count)
         if !appReady {
@@ -154,13 +140,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private var engineUp = false {
-        didSet {
-            guard engineUp != oldValue else { return }
-            DispatchQueue.main.async { self.refreshEngineState() }
-        }
-    }
-
     // MARK: - Status item & menu
 
     private func setupStatusItem() {
@@ -191,12 +170,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         file.target = self
         menu.addItem(file)
 
-        menu.addItem(.separator())
+        languageMenu = NSMenu()
+        menu.addItem(NSMenuItem(title: "Language", action: nil, keyEquivalent: ""))
+        menu.item(at: menu.numberOfItems - 1)?.submenu = languageMenu
+        refreshLanguageMenu()
 
-        engineItem = NSMenuItem(title: "Engine: starting…", action: #selector(restartEngine),
-                                keyEquivalent: "")
-        engineItem.target = self
-        menu.addItem(engineItem)
+        menu.addItem(.separator())
 
         let sessions = NSMenuItem(title: "Sessions Folder…", action: #selector(openSessions),
                                   keyEquivalent: "")
@@ -244,42 +223,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         pill.show(.success)
     }
 
-    // MARK: - Setup & state rows
+    // MARK: - Setup & language rows
 
-    private func refreshEngineState() {
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            if !AXIsProcessTrusted() {
-                self.setupItem.title = "Enable Accessibility to Paste…"
-                self.setupItem.isHidden = false
-            } else {
-                self.setupItem.isHidden = true
+    private func refreshSetupState() {
+        guard !AXIsProcessTrusted() else {
+            setupItem.isHidden = true
+            return
+        }
+        setupItem.title = "Enable Accessibility to Paste…"
+        setupItem.isHidden = false
+    }
+
+    private func refreshLanguageMenu() {
+        guard let languageMenu else { return }
+        languageMenu.removeAllItems()
+        addLanguageItem("Auto (system language)", value: "auto", to: languageMenu)
+        languageMenu.addItem(.separator())
+        Task { @MainActor [weak self, weak languageMenu] in
+            guard let self, let languageMenu else { return }
+            let locales = LocaleManager.shippedLocales(supported: await SpeechTranscriber.supportedLocales)
+            for locale in locales {
+                let id = locale.identifier(.bcp47)
+                self.addLanguageItem(Locale.current.localizedString(forIdentifier: id) ?? id,
+                                     value: id, to: languageMenu)
             }
-            if self.engineUp {
-                let suffix = self.modelShortName().map { " — \($0)" } ?? ""
-                self.engineItem.title = "Engine: running\(suffix)"
-                self.engineItem.action = #selector(self.restartEngine)
-            } else {
-                self.engineItem.title = "Engine: not running — Start"
-                self.engineItem.action = #selector(self.restartEngine)
-            }
+            self.markSelectedLanguage()
         }
     }
 
-    /// Short model label derived from the engine's own /health report, so the
-    /// menu can never drift from the model actually loaded.
-    private func modelShortName() -> String? {
-        guard let name = currentModelName else { return nil }
-        let short = name.split(separator: "/").last.map(String.init) ?? name
-        return short.hasPrefix("whisper-") ? String(short.dropFirst("whisper-".count)) : short
+    private func addLanguageItem(_ title: String, value: String, to menu: NSMenu) {
+        let item = NSMenuItem(title: title, action: #selector(selectLanguage(_:)), keyEquivalent: "")
+        item.target = self
+        item.representedObject = value
+        menu.addItem(item)
     }
 
-    private func checkEngine() {
-        engine.health { [weak self] up, model in
-            guard let self else { return }
-            if let model { self.currentModelName = model }
-            self.engineUp = up
+    private func markSelectedLanguage() {
+        let selected = config.isLocaleAuto ? "auto" : config.locale?.lowercased()
+        for item in languageMenu.items {
+            item.state = (item.representedObject as? String)?.lowercased() == selected ? .on : .off
         }
+    }
+
+    @objc private func selectLanguage(_ item: NSMenuItem) {
+        guard let value = item.representedObject as? String else { return }
+        config.locale = value == "auto" ? nil : value
+        try? config.save()
+        markSelectedLanguage()
     }
 
     private func setupHotKey() {
@@ -361,147 +351,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func startDictation() {
         guard liveState == .idle else { return }
-        switch AVCaptureDevice.authorizationStatus(for: .audio) {
-        case .denied, .restricted:
-            presentAlert(title: "Microphone Access Needed",
-                         message: "Allow Transcribe to use the microphone in System Settings, then dictate again.",
-                         actionTitle: "Open System Settings",
-                         action: { NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")!) })
-            return
-        default:
-            break
-        }
-        if config.engine == "apple" {
-            startDictationNative()
-            return
-        }
-        liveCancelled = false
-        liveState = .recording
-        showRecording()
-        startEscapeMonitoring()
-        do {
-            _ = try recorder.start()
-            NSSound(named: NSSound.Name("Pop"))?.play()
-        } catch {
-            liveState = .idle
-            stopEscapeMonitoring()
-            showIdleIcon()
-            refreshHUD()
-            presentAlert(title: "Can't Record", message: error.localizedDescription)
-        }
+        startDictationNative()
     }
 
     private func stopDictation() {
-        guard liveState == .recording else { return }
-        if liveCancelled { return }
-        if config.engine == "apple" { stopDictationNative(); return }
-        guard let url = recorder.currentURL else { return }
-        liveState = .transcribing
-        showTranscribing()
-        recorder.stop()
-        NSSound(named: NSSound.Name("Tink"))?.play()
-        sendForTranscription(url: url)
+        guard liveState == .recording, !liveCancelled else { return }
+        stopDictationNative()
     }
 
     @objc private func cancelDictation() {
         guard liveState != .idle else { return }
         liveCancelled = true
-        liveRequestID = nil
-        liveTask?.cancel()
-        liveTask = nil
         stopEscapeMonitoring()
-
-        if nativeActive {
-            nativeActive = false
-            nativeEngine?.cancel()
-            liveState = .idle
-            showIdleIcon()
-            pill.cancel()
-            NSSound(named: NSSound.Name("Blow"))?.play()
-            refreshHUD()
-            return
-        }
-
-        if let url = recorder.currentURL {
-            if recorder.isRecording { recorder.stop() }
-            try? FileManager.default.removeItem(at: url)
-        }
-
+        if nativeActive { nativeEngine.cancel() }
+        nativeActive = false
         liveState = .idle
         showIdleIcon()
         pill.cancel()
         NSSound(named: NSSound.Name("Blow"))?.play()
+        refreshHUD()
     }
 
-    private func sendForTranscription(url: URL) {
-        let requestID = UUID()
-        liveRequestID = requestID
-        engine.ensureEngineRunning { [weak self] ok in
-            guard let self,
-                  self.liveState == .transcribing,
-                  self.liveRequestID == requestID else { return }
-            guard ok else {
-                self.liveRequestID = nil
-                self.liveState = .idle
-                self.stopEscapeMonitoring()
-                self.showIdleIcon()
-                self.pill.show(.error("Engine Offline"))
-                return
-            }
-            self.engineUp = true
-            self.liveTask = self.engine.transcribe(path: url) { [weak self] result in
-                guard let self,
-                      self.liveRequestID == requestID else { return }
-                self.liveRequestID = nil
-                self.liveTask = nil
-                self.liveState = .idle
-                self.stopEscapeMonitoring()
+    // MARK: - Native dictation lane
 
-                if self.liveCancelled {
-                    try? FileManager.default.removeItem(at: url)
-                    self.refreshHUD()
-                    return
-                }
-                switch result {
-                case .success(let tr):
-                    let text = tr.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if text.isEmpty {
-                        self.showIdleIcon()
-                        self.pill.show(.empty)
-                    } else if AXIsProcessTrusted() {
-                        Paste.paste(text)
-                        Paste.clearIfUnchanged(text)
-                        self.flashResult()
-                    } else {
-                        // Accessibility missing: leave the text on the pasteboard
-                        // so Cmd+V still works manually.
-                        Paste.copyOnly(text)
-                        Paste.clearIfUnchanged(text)
-                        self.flashResult()
-                    }
-                case .failure(let error):
-                    self.showIdleIcon()
-                    self.pill.show(.error("Failed"))
-                    self.presentAlert(title: "Transcription Failed",
-                                      message: error.localizedDescription)
-                }
-                try? FileManager.default.removeItem(at: url)
-            }
-        }
-    }
-
-    // MARK: - Native dictation lane (engine == "apple", design §3)
-
-    /// Build the native engine + LocaleManager only when routed. The mlx path
-    /// never touches the Speech stack (cutover safety).
-    private func setupNativeLaneIfRouted() {
-        guard config.engine == "apple" else { return }
-        let localeManager = LocaleManager()
-        let eng = SpeechDictationEngine(localeManager: localeManager)
-        eng.onFailure = { [weak self] message in self?.handleNativeFailure(message) }
-        nativeEngine = eng
-        Task { await localeManager.bootstrap() }   // AC-L1 cache fill + reservations
-    }
 
     private func startDictationNative() {
         liveCancelled = false
@@ -634,11 +506,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func startNextFileIfNeeded() {
-        guard activeFileURL == nil else {
-            refreshHUD()
-            return
-        }
-        guard let url = fileQueue.first else {
+        guard activeFileURL == nil, let url = fileQueue.first else {
             refreshHUD()
             return
         }
@@ -647,56 +515,63 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let requestID = UUID()
         fileRequestID = requestID
         refreshHUD()
-
-        engine.ensureEngineRunning { [weak self] ok in
-            guard let self,
-                  self.activeFileURL == url,
-                  self.fileRequestID == requestID else { return }
-            guard ok else {
-                self.finishFile(url: url, requestID: requestID,
-                                result: .failure(NSError(domain: "Transcribe", code: 4,
-                                                          userInfo: [NSLocalizedDescriptionKey: "Engine is not running"])))
-                return
-            }
-            self.engineUp = true
-            self.fileTask = self.engine.transcribe(path: url,
-                                                    preserveSource: true) { [weak self] result in
-                self?.finishFile(url: url, requestID: requestID, result: result)
-            }
+        fileTask = Task { [weak self] in
+            await self?.runFile(url, requestID: requestID)
         }
     }
 
-    private func finishFile(url: URL, requestID: UUID,
-                            result: Result<TranscriptionResult, Error>) {
+    private func runFile(_ url: URL, requestID: UUID) async {
+        do {
+            try await TranscribeCLI.ensureSpeechAuthorized()
+            let supported = await SpeechTranscriber.supportedLocales
+            let locale: Locale
+            if config.isLocaleAuto {
+                guard let picked = TranscribeCLI.resolveAuto(system: .current, supported: supported),
+                      let canonical = await SpeechTranscriber.supportedLocale(equivalentTo: picked) else {
+                    throw CLIError.localeNotReady("no supported locale is available")
+                }
+                locale = canonical
+            } else {
+                guard let raw = config.locale,
+                      let canonical = await SpeechTranscriber.supportedLocale(
+                        equivalentTo: Locale(identifier: raw)) else {
+                    throw CLIError.localeNotReady("configured language is not supported")
+                }
+                locale = canonical
+            }
+            await localeManager.bootstrap()
+            if !localeManager.isReady(locale),
+               !(await localeManager.refreshReadiness(locale)) {
+                try await localeManager.ensureInstalled(locale)
+            }
+            guard localeManager.isReady(locale) else {
+                throw CLIError.localeNotReady("language assets are not ready")
+            }
+            let output = try await FileTranscriber.transcribe(url: url, locale: locale)
+            guard activeFileURL == url, fileRequestID == requestID, !Task.isCancelled else { return }
+            let text = output.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if text.isEmpty {
+                pendingFileStatuses.append(.empty)
+            } else {
+                let md = try sessionStore.writeMarkdown(audioPath: url, text: output.text)
+                sessionStore.saveBestEffort(recording: nil, transcript: output.text,
+                                            model: "apple/\(output.language)",
+                                            language: output.language, source: "file",
+                                            keepTranscripts: config.keepTranscripts,
+                                            sourcePath: url.path, transcriptPath: md.path)
+                pendingFileStatuses.append(.fileSuccess)
+            }
+        } catch is CancellationError {
+            return
+        } catch {
+            guard activeFileURL == url, fileRequestID == requestID else { return }
+            pendingFileStatuses.append(.error("File failed"))
+            NSLog("Transcribe: file failed %@ — %@", url.path, String(describing: error))
+        }
         guard activeFileURL == url, fileRequestID == requestID else { return }
         fileTask = nil
         fileRequestID = nil
         activeFileURL = nil
-
-        switch result {
-        case .success(let transcription):
-            let text = transcription.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            if text.isEmpty {
-                pendingFileStatuses.append(.empty)
-            } else {
-                // The engine writes the .md beside the source before responding;
-                // only fall back to writing it here if it reported none.
-                let serverMD = URL(fileURLWithPath: transcription.transcriptPath)
-                if transcription.transcriptPath.isEmpty
-                    || !FileManager.default.fileExists(atPath: serverMD.path) {
-                    do {
-                        _ = try writeMarkdown(for: url, text: text)
-                    } catch {
-                        pendingFileStatuses.append(.error("Could not save file"))
-                        startNextFileIfNeeded()
-                        return
-                    }
-                }
-                pendingFileStatuses.append(.fileSuccess)
-            }
-        case .failure:
-            pendingFileStatuses.append(.error("File failed"))
-        }
         startNextFileIfNeeded()
     }
 
@@ -718,31 +593,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
     }
 
-    @objc private func restartEngine() {
-        engine.ensureEngineRunning { [weak self] ok in
-            self?.engineUp = ok
-            guard ok else { return }
-            self?.reloadEngineRetrying(remaining: 10)
-        }
-    }
-
-    /// /reload is non-blocking: it answers 503 while a job runs. Retry briefly
-    /// instead of discarding the restart; the status row keeps showing the
-    /// (still running) engine either way.
-    private func reloadEngineRetrying(remaining: Int) {
-        engine.reload { [weak self] ok in
-            guard let self, !ok, remaining > 0 else { return }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                self.reloadEngineRetrying(remaining: remaining - 1)
-            }
-        }
-    }
-
     @objc private func pickFile() {
         let panel = NSOpenPanel()
-        // Do not filter by extension or Uniform Type Identifier here. ffmpeg
-        // decides whether the selected media has a decodable audio stream, so
-        // uncommon containers and files without a normal extension work too.
+        // AVAudioFile accepts the native audio containers without filtering.
         panel.allowedContentTypes = []
         panel.allowsMultipleSelection = false
         panel.message = "Choose any media file with an audio track to transcribe locally."
@@ -750,14 +603,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard response == .OK, let url = panel.url else { return }
             self?.enqueueFile(url)
         }
-    }
-
-    private func writeMarkdown(for audioURL: URL, text: String) throws -> URL {
-        let outputURL = audioURL.deletingPathExtension().appendingPathExtension("md")
-        let title = audioURL.deletingPathExtension().lastPathComponent
-        let markdown = "# \(title)\n\n\(text)\n"
-        try markdown.write(to: outputURL, atomically: true, encoding: .utf8)
-        return outputURL
     }
 
     @objc private func openSessions() {
@@ -774,7 +619,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func showAbout() {
         let alert = NSAlert()
         alert.messageText = "Transcribe \(Updater.currentVersion)"
-        alert.informativeText = "Fully local dictation and transcription.\n\nWhisper runs on this Mac — nothing leaves your machine. Audio and transcripts are cleaned up automatically."
+        alert.informativeText = "Fully local dictation and transcription.\n\nApple SpeechAnalyzer runs on this Mac — nothing leaves your machine. Audio and transcripts are cleaned up automatically."
         alert.addButton(withTitle: "OK")
         alert.runModal()
     }
@@ -805,7 +650,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 extension AppDelegate: NSMenuDelegate {
     func menuWillOpen(_ menu: NSMenu) {
-        checkEngine()
-        refreshEngineState()
+        refreshSetupState()
+        refreshLanguageMenu()
     }
 }

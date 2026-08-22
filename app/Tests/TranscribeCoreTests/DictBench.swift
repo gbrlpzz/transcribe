@@ -97,8 +97,6 @@ enum DictBench {
     static func oneRun(fileURL: URL, requestedLocale: String, speed: Double, run: Int) async -> BenchRecord {
         let audioDur = ((try? AVAudioFile(forReading: fileURL)).map {
             Double($0.length) / $0.processingFormat.sampleRate } ?? 1.0)
-        let box = RunBox()
-
         let engine: SpeechDictationEngine? = await MainActor.run {
             let source = FileBufferSource(url: fileURL, speed: speed)
             let engine = SpeechDictationEngine(localeManager: nil, audioSource: source)
@@ -132,8 +130,6 @@ enum DictBench {
         return rec
     }
 
-    final class RunBox: @unchecked Sendable {
-    }
 
     // MARK: cancel cycles (AC-D5)
 

@@ -3,22 +3,15 @@ import Foundation
 /// Mirrors `transcribe/config.py` so the app and the engine share one
 /// configuration file at `~/Library/Application Support/transcribe/config.json`.
 ///
-/// Design §8/§16 additions for Leggerissimo:
-/// - `locale`: R42/R42a — nil or "auto" = system-language heuristic (§5.4);
-///   otherwise a BCP-47 identifier from the shipped set ("it-IT", "de-CH", …).
-/// - `engine`: cutover key "mlx" (0.6.0 default) | "apple"; inert until the
-///   native lanes land (design §16).
+/// Leggerissimo settings: nil or "auto" uses the system-language heuristic;
+/// otherwise `locale` is a BCP-47 identifier from the shipped set.
 /// Retention keys are preserved verbatim from the 0.6.0 engine config (§7).
 /// Every key decodes as optional-with-default, matching the Python loader's
 /// fill-missing-with-defaults semantics; unknown keys are ignored by
 /// JSONDecoder, so upgrading never breaks.
 public struct AppConfig: Codable, Equatable, Sendable {
     public var hotkey: String = "ctrl+space"
-    /// Local engine port — inert at apple cutover; dies with the deletions
-    /// ledger in W4 (design §11).
-    public var port: Int = 8765
     public var locale: String?
-    public var engine: String = "mlx"
     public var liveCleanupTTLHours: Double = 1.0
     public var cleanupTTLHours: Double = 168.0
     /// 0 disables the periodic TTL sweep (engine parity).
@@ -26,7 +19,7 @@ public struct AppConfig: Codable, Equatable, Sendable {
     public var keepTranscripts: Bool = true
 
     enum CodingKeys: String, CodingKey {
-        case hotkey, port, locale, engine
+        case hotkey, locale
         case liveCleanupTTLHours = "live_cleanup_ttl_hours"
         case cleanupTTLHours = "cleanup_ttl_hours"
         case cleanupIntervalMinutes = "cleanup_interval_minutes"
@@ -35,18 +28,14 @@ public struct AppConfig: Codable, Equatable, Sendable {
 
     public init(
         hotkey: String = "ctrl+space",
-        port: Int = 8765,
         locale: String? = nil,
-        engine: String = "mlx",
         liveCleanupTTLHours: Double = 1.0,
         cleanupTTLHours: Double = 168.0,
         cleanupIntervalMinutes: Double = 30.0,
         keepTranscripts: Bool = true
     ) {
         self.hotkey = hotkey
-        self.port = port
         self.locale = locale
-        self.engine = engine
         self.liveCleanupTTLHours = liveCleanupTTLHours
         self.cleanupTTLHours = cleanupTTLHours
         self.cleanupIntervalMinutes = cleanupIntervalMinutes
@@ -56,9 +45,7 @@ public struct AppConfig: Codable, Equatable, Sendable {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         hotkey = try c.decodeIfPresent(String.self, forKey: .hotkey) ?? "ctrl+space"
-        port = try c.decodeIfPresent(Int.self, forKey: .port) ?? 8765
         locale = try c.decodeIfPresent(String.self, forKey: .locale)
-        engine = try c.decodeIfPresent(String.self, forKey: .engine) ?? "mlx"
         liveCleanupTTLHours = try c.decodeIfPresent(Double.self, forKey: .liveCleanupTTLHours) ?? 1.0
         cleanupTTLHours = try c.decodeIfPresent(Double.self, forKey: .cleanupTTLHours) ?? 168.0
         cleanupIntervalMinutes = try c.decodeIfPresent(Double.self, forKey: .cleanupIntervalMinutes) ?? 30.0

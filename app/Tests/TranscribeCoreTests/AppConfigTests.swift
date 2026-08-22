@@ -6,9 +6,7 @@ enum AppConfigTests {
         let json = #"{"hotkey":"ctrl+x","port":9999}"#
         let cfg = try JSONDecoder().decode(AppConfig.self, from: Data(json.utf8))
         try requireEqual(cfg.hotkey, "ctrl+x")
-        try requireEqual(cfg.port, 9999)
         try requireEqual(cfg.locale, nil as String?)
-        try requireEqual(cfg.engine, "mlx", "cutover default (§16)")
         try requireEqual(cfg.liveCleanupTTLHours, 1.0, "engine parity defaults (§7)")
         try requireEqual(cfg.cleanupTTLHours, 168.0)
         try requireEqual(cfg.cleanupIntervalMinutes, 30.0)
@@ -19,13 +17,11 @@ enum AppConfigTests {
         let json = #"{"hotkey":"a","bogus_key":[1,2],"another":null}"#
         let cfg = try JSONDecoder().decode(AppConfig.self, from: Data(json.utf8))
         try requireEqual(cfg.hotkey, "a")
-        try requireEqual(cfg.port, 8765)
     }
 
     @MainActor static func roundTripPreservesAllKeys() throws {
         var cfg = AppConfig()
         cfg.locale = "it-IT"
-        cfg.engine = "apple"
         cfg.liveCleanupTTLHours = 0.5
         cfg.keepTranscripts = false
         let data = try JSONEncoder().encode(cfg)
