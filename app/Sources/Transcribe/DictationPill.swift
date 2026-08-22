@@ -61,9 +61,7 @@ final class DictationPill: NSPanel {
     private let statusIcon = NSImageView()
     private let statusLabel = NSTextField(labelWithString: "")
 
-    init(compact: Bool = false, circle: Bool = false) {
-        compactMode = compact
-        circleMode = circle
+    init() {
         let initialWidth: CGFloat = 140 + (Self.shadowPadding * 2)
         let initialHeight = Self.pillHeight + (Self.shadowPadding * 2)
         super.init(contentRect: NSRect(x: 0, y: 0, width: initialWidth, height: initialHeight),

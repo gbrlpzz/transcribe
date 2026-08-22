@@ -63,7 +63,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.cancelDictation()
         }
         pill.onHidden = { [weak self] in
-            self?.refreshLivePill()
+            self?.refreshHUD()
         }
         filePill.onCancel = { [weak self] _ in
             self?.cancelFileTranscription()
@@ -211,7 +211,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func showRecording() {
         statusItem.button?.image = Self.templateImage("mic")
         statusItem.button?.contentTintColor = .systemRed
-        refreshLivePill()
+        refreshHUD()
         levelTimer?.invalidate()
         let t = Timer(timeInterval: 0.033, repeats: true) { [weak self] _ in
             self?.pill.updateLevel(self?.recorder.level() ?? 0)
@@ -224,7 +224,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         levelTimer?.invalidate()
         levelTimer = nil
         statusItem.button?.contentTintColor = fileHUDVisible ? .systemOrange : nil
-        refreshLivePill()
+        refreshHUD()
     }
 
     private func flashResult(_ text: String) {
@@ -265,13 +265,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         let hk = HotKey()
-        hk.onAction = { [weak self] action in
+        hk.onAction = { [weak self] _ in
             // Tap-to-toggle: first tap starts recording, second tap stops and
             // transcribes. No press-and-hold, no accidental releases.
-            switch action {
-            case .pressed: self?.toggleDictation()
-            case .released: break
-            }
+            self?.toggleDictation()
         }
         if !hk.register(modifiers: parsed.modifiers, keyCode: parsed.keyCode) {
             presentAlert(title: "Hotkey Not Available",
@@ -290,14 +287,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     // MARK: - Dictation
-
-    private func refreshPill() {
-        refreshHUD()
-    }
-
-    private func refreshLivePill() {
-        refreshHUD()
-    }
 
     /// Keep the two panels as one centered notch cluster. A file is a large
     /// pill by itself. Once live dictation joins, the live pill becomes medium
@@ -370,7 +359,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             liveState = .idle
             stopEscapeMonitoring()
             showIdleIcon()
-            refreshPill()
+            refreshHUD()
             presentAlert(title: "Can't Record", message: error.localizedDescription)
         }
     }
@@ -432,7 +421,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
                 if self.liveCancelled {
                     try? FileManager.default.removeItem(at: url)
-                    self.refreshPill()
+                    self.refreshHUD()
                     return
                 }
                 switch result {
@@ -466,7 +455,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func enqueueFile(_ url: URL) {
         guard url.isFileURL, FileManager.default.fileExists(atPath: url.path) else {
             pendingFileStatuses.append(.error("File not found"))
-            refreshPill()
+            refreshHUD()
             return
         }
         fileQueue.append(url)
@@ -475,18 +464,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func startNextFileIfNeeded() {
         guard activeFileURL == nil else {
-            refreshPill()
+            refreshHUD()
             return
         }
         guard let url = fileQueue.first else {
-            refreshPill()
+            refreshHUD()
             return
         }
         fileQueue.removeFirst()
         activeFileURL = url
         let requestID = UUID()
         fileRequestID = requestID
-        refreshPill()
+        refreshHUD()
 
         engine.ensureEngineRunning { [weak self] ok in
             guard let self,
