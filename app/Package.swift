@@ -11,9 +11,16 @@ let package = Package(
             name: "TranscribeCore",
             path: "Sources/TranscribeCore"
         ),
+        // CLI logic library (design §9, R40/R48): linked INTO the app binary —
+        // single-binary dispatch, argv[0] "transcribe" selects CLI mode (R49).
+        .target(
+            name: "TranscribeCLI",
+            dependencies: [.target(name: "TranscribeCore")],
+            path: "Sources/TranscribeCLI"
+        ),
         .executableTarget(
             name: "Transcribe",
-            dependencies: [.target(name: "TranscribeCore")],
+            dependencies: [.target(name: "TranscribeCore"), .target(name: "TranscribeCLI")],
             path: "Sources/Transcribe",
             // Tools 6.2 defaults new packages to the Swift 6 language mode;
             // the app is still written in Swift 5 semantics. Native modules
@@ -25,7 +32,7 @@ let package = Package(
         // Same suites, injected fakes, non-zero exit on any failure.
         .executableTarget(
             name: "TranscribeCoreTests",
-            dependencies: [.target(name: "TranscribeCore")],
+            dependencies: [.target(name: "TranscribeCore"), .target(name: "TranscribeCLI")],
             path: "Tests/TranscribeCoreTests"
         )
     ]
