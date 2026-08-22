@@ -20,9 +20,12 @@ let package = Package(
             // land with strict concurrency in the W2 waves.
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
-        .testTarget(
+        // CLT-only machines have no XCTest/swift-testing runtime (verified
+        // 2026-08-23); this executable IS the test target until Xcode lands.
+        // Same suites, injected fakes, non-zero exit on any failure.
+        .executableTarget(
             name: "TranscribeCoreTests",
-            dependencies: ["TranscribeCore"],
+            dependencies: [.target(name: "TranscribeCore")],
             path: "Tests/TranscribeCoreTests"
         )
     ]

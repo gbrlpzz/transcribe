@@ -72,6 +72,10 @@ public final class LocaleManager {
         }
     }
 
+    /// Locales we currently hold reservations for, oldest first. Exposed for
+    /// the settings UI ("languages reserved on this Mac") and diagnostics.
+    public func currentReservations() -> [Locale] { reservations }
+
     /// Cached-ready locales (sync read for menu/HUD, AC-L1).
     public func readyLocales() -> [Locale] {
         readiness
@@ -173,7 +177,10 @@ public final class LocaleManager {
     // MARK: - Shipped set (R42 / design §5.4) — pure helpers, unit-tested
 
     nonisolated public static func bcp47(_ locale: Locale) -> String {
-        locale.identifier(.bcp47).replacingOccurrences(of: "_", with: "-")
+        // Lowercased: BCP-47 is case-insensitive; canonical form for cache keys.
+        locale.identifier(.bcp47)
+            .replacingOccurrences(of: "_", with: "-")
+            .lowercased()
     }
 
     /// Shipped picker set: en-* and it-* unrestricted; de ∈ {DE,AT,CH};
@@ -380,7 +387,9 @@ public final class LocaleManager {
 
     // MARK: - Error mapping (ar-§6 codes, measured rawValues)
 
-    nonisolated static func mapInstallError(_ error: Error) -> LocaleManagerError {
+    /// Maps Speech-domain errors onto our typed surface (ar-§6 codes).
+    /// Public: the CLI reuses it for human-readable install failures.
+    nonisolated public static func mapInstallError(_ error: Error) -> LocaleManagerError {
         let ns = error as NSError
         if ns.domain == SFSpeechErrorDomain, let code = SFSpeechError.Code(rawValue: ns.code) {
             switch code {

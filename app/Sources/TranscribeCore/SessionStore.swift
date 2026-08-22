@@ -101,14 +101,14 @@ public final class SessionStore {
 
     // MARK: - Time formatting (local timezone, engine parity)
 
-    nonisolated static func dayFormatter() -> DateFormatter {
+    nonisolated public static func dayFormatter() -> DateFormatter {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
         f.timeZone = .current
         f.dateFormat = "yyyyMMdd"
         return f
     }
-    nonisolated static func idFormatter() -> DateFormatter {
+    nonisolated public static func idFormatter() -> DateFormatter {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
         f.timeZone = .current
