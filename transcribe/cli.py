@@ -381,9 +381,9 @@ def cmd_doctor(args, cfg) -> int:
 
     from transcribe.audio import ffmpeg_path, find_input_device
     ff = ffmpeg_path()
-    # optional since single-decode: dictation never needs it; only non-WAV media-file jobs do
+    # optional: needed for non-WAV media files and terminal dictation; menu-bar dictation and WAV files never use it
     print(f"{'✓' if ff else '•'} ffmpeg           "
-          f"{ff or 'optional - needed only for non-WAV media files (brew install ffmpeg)'}")
+          f"{ff or 'optional - needed for non-WAV media files and terminal dictation (brew install ffmpeg)'}")
 
     try:
         import mlx_whisper  # noqa: F401

@@ -35,7 +35,7 @@
 | macOS | 14.0 |
 | Storage | About 3 GB free |
 | Tools | [`uv`](https://docs.astral.sh/uv/) |
-| Optional | `ffmpeg` (`brew install ffmpeg`) — only needed to transcribe media files that are not WAV/PCM (for example MP3, OGG, M4A); dictation never uses it |
+| Optional | `ffmpeg` (`brew install ffmpeg`) — needed only for media files that are not WAV/PCM (MP3, OGG, M4A…) and for dictating straight from the terminal; menu-bar dictation and WAV files never use it |
 
 ### Model and memory
 
@@ -53,7 +53,7 @@ Install the local engine:
 uv tool install --from git+https://github.com/gbrlpzz/transcribe transcribe
 ```
 
-Optional: install `ffmpeg` if you want to transcribe media files that are not WAV/PCM (`brew install ffmpeg`). Dictation and WAV file transcription do not use it.
+Optional: install `ffmpeg` (`brew install ffmpeg`) to transcribe media files that are not WAV/PCM, or to dictate from the terminal (`transcribe` with no arguments captures the microphone through ffmpeg). Menu-bar-app dictation and WAV file transcription do not use it.
 
 Build and install the menu-bar app:
 

@@ -9,7 +9,7 @@ transcribe doctor
 ```
 
 The command checks the engine, `mlx-whisper`, the microphone, Accessibility permissions, stale sessions, and `ffmpeg` availability.
-`ffmpeg` is only needed for media files that are not WAV/PCM; dictation works without it.
+`ffmpeg` is needed for media files that are not WAV/PCM and for dictating from the terminal; menu-bar-app dictation and WAV files work without it.
 
 ## The engine is offline
 
