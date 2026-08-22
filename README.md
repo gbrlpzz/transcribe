@@ -22,6 +22,7 @@
 - **One model, zero choices**: 4-bit `whisper-turbo` (`turbo-q4`) stays warm for fast, low-footprint dictation and file transcription. Language is detected automatically per utterance — mixed Italian/English just works.
 - **Native menu-bar app**: Global hotkey, paste into any app, microphone recording, and a one-row engine status you can click to start or restart.
 - **Notch HUD**: Apple-style status feedback with recording, transcription, result, error, and cancel states.
+- **Self-updating**: **Check for Updates…** installs the newest GitHub release and refreshes the engine.
 - **Finder Quick Action**: Right-click any file with an audio stream and transcribe it. The source file stays in place and `<file>.md` is saved beside it.
 - **Prime Agent skill**: Optional local transcription tools for Prime Agent.
 - **Automatic cleanup**: Live audio is kept for a one-hour recovery window, generated file transcripts for seven days. The engine sweeps expired data every 30 minutes while it runs.
