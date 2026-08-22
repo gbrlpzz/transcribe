@@ -11,8 +11,8 @@
                ▼                                  ▼
         ┌───────────────────────────────────────────────┐
         │  Local Engine Server (127.0.0.1:8765)         │
-        │  One warm whisper-large-v3-turbo (4-bit) · MLX │
-        │  One warm whisper-large-v3-turbo-4bit · MLX    │
+        │  One warm whisper-large-v3-turbo · MLX        │
+        │  Local storage · smart text · TTL cleanup     │
         └───────────────────────────────────────────────┘
 ```
 
