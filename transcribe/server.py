@@ -19,11 +19,19 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 from urllib.parse import urlparse
 
 from transcribe.config import load
 from transcribe.engine import Transcriber
 from transcribe.storage import clean, save_result, write_transcript_markdown
+
+
+# Server-side cap on one transcription request. The Swift client has no
+# per-request timeout of its own, so a hung engine call would otherwise pin
+# the app forever. Generous by design — legitimate jobs are minutes at most;
+# tests monkeypatch this to something small.
+REQUEST_TIMEOUT_S = 1800.0
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -97,8 +105,26 @@ class _Handler(BaseHTTPRequestHandler):
                 # MLX's GPU stream is thread-local. Keep warm-up and every
                 # inference on one dedicated engine thread instead of letting
                 # ThreadingHTTPServer move requests between worker threads.
-                result = self.server.run_engine(
+                # The request is capped by REQUEST_TIMEOUT_S so a hung engine
+                # call cannot pin the requesting client forever.
+                future = self.server.inference_executor.submit(
                     lambda: self.server.transcriber.transcribe(audio_path))
+                result = future.result(timeout=REQUEST_TIMEOUT_S)
+            except FuturesTimeoutError:
+                # Honest limitation: Python cannot kill a thread. The worker
+                # keeps executing the stuck transcription until the underlying
+                # call returns on its own; it cannot be reclaimed here. What we
+                # can do is stop it from blocking everyone else: swap in a
+                # fresh single-worker executor so later requests proceed, and
+                # let the abandoned thread finish whenever it finally does (if
+                # it truly never returns, its thread delays interpreter exit,
+                # because workers are joined at shutdown).
+                self.server.abandon_inference_thread()
+                print(f"[server] transcription timed out after "
+                      f"{REQUEST_TIMEOUT_S}s: {audio_path}", flush=True)
+                self._send(500, {"error": f"transcription timed out after "
+                                          f"{REQUEST_TIMEOUT_S}s"})
+                return
             except Exception as exc:  # noqa: BLE001 - report any engine failure
                 self._send(500, {"error": str(exc)})
                 return
@@ -154,6 +180,19 @@ class TranscribeServer(ThreadingHTTPServer):
     def run_engine(self, operation):
         """Run model work on the one thread that also performs warm-up."""
         return self.inference_executor.submit(operation).result()
+
+    def abandon_inference_thread(self):
+        """Replace the inference worker after a timed-out request.
+
+        The stuck call itself cannot be killed; shutting the old executor
+        down without waiting leaves its thread running until the underlying
+        work returns, while the fresh executor serves subsequent requests
+        immediately instead of queueing behind the corpse.
+        """
+        old = self.inference_executor
+        self.inference_executor = ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="transcribe-engine")
+        old.shutdown(wait=False, cancel_futures=True)
 
     def server_close(self):
         self.inference_executor.shutdown(wait=True, cancel_futures=True)

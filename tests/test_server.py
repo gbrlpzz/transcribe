@@ -116,3 +116,55 @@ def test_health_stays_served_while_engine_busy(fake_server, tmp_path):
 
     fake.release.set()
     job.join(timeout=10)
+
+
+def test_transcribe_times_out_releases_lock_and_recovers(fake_server, monkeypatch, tmp_path):
+    """A slow transcriber hits REQUEST_TIMEOUT_S: the client gets a 500, the
+    lock is released, and the next request proceeds even though the stuck
+    thread still occupies the abandoned executor."""
+    srv, fake = fake_server
+    fake.hang = True
+    monkeypatch.setattr(server_mod, "REQUEST_TIMEOUT_S", 0.2)
+    clip = tmp_path / "clip.wav"
+    clip.write_bytes(b"RIFFfake")
+
+    t0 = time.perf_counter()
+    with pytest.raises(urllib.error.HTTPError) as excinfo:
+        _post_transcribe(srv, str(clip))
+    elapsed = time.perf_counter() - t0
+
+    assert excinfo.value.code == 500
+    assert "timed out" in json.loads(excinfo.value.read())["error"]
+    assert 0.2 <= elapsed < 5
+
+    # the engine lock must be free again right away
+    assert srv.lock.acquire(blocking=False)
+    srv.lock.release()
+
+    # and the next request proceeds: fresh executor serves it while the
+    # abandoned one still runs the never-released stuck call.
+    fake.hang = False
+    with _post_transcribe(srv, str(clip)) as resp:
+        body = json.loads(resp.read())
+    assert body["text"] == "hello"
+    assert len(fake.calls) == 2
+
+
+def test_engine_error_still_returns_500_and_releases_lock(fake_server, tmp_path):
+    """Ordinary engine failures keep the pre-timeout contract: 500 + unlock."""
+    srv, fake = fake_server
+
+    def boom(path):
+        raise RuntimeError("engine exploded")
+
+    fake.transcribe = boom
+    clip = tmp_path / "clip.wav"
+    clip.write_bytes(b"RIFFfake")
+
+    with pytest.raises(urllib.error.HTTPError) as excinfo:
+        _post_transcribe(srv, str(clip))
+
+    assert excinfo.value.code == 500
+    assert "engine exploded" in json.loads(excinfo.value.read())["error"]
+    assert srv.lock.acquire(blocking=False)
+    srv.lock.release()
