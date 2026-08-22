@@ -12,4 +12,4 @@ def test_language_detection_uses_whisper_tiny():
 def test_release_version():
     import transcribe
 
-    assert transcribe.__version__ == "0.5.0"
+    assert transcribe.__version__ == "0.6.0"
