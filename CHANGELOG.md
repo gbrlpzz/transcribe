@@ -12,7 +12,7 @@ with their own isolated measurements.
 |---|---|---|---|
 | Tool install size | 1.02 GB | ~248 MB fresh venv (`du -sk`) | −76% |
 | Engine cold import (`import mlx_whisper`) | ~620–730 ms | ~122–142 ms steady | −~0.5 s |
-| Dictation fixed paste delay | +120 ms every utterance | deleted | −120 ms |
+| Dictation fixed paste delay | +120 ms every utterance | kept after live testing showed synthetic Cmd+V races some apps' input handling | reliability first |
 | ffmpeg decodes per dictation utterance | 2 (~31 ms each) | 0 (PCM read in-process) | −~31–62 ms per utterance |
 | Short-utterance E2E (HTTP) | 1.02 s median | 1.07 s under 2x higher background load; unchanged within noise, minus the deleted paste delay and ffmpeg decodes | engine-side flat, app-side faster |
 | Language detection cost | ~59–61 ms (ffmpeg spawn + decode) | **19–22 ms** (in-process PCM) | ~3x |
