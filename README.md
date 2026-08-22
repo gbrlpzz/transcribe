@@ -11,7 +11,7 @@
                ▼                                  ▼
         ┌───────────────────────────────────────────────┐
         │  Local Engine Server (127.0.0.1:8765)         │
-        │  One warm Whisper turbo-q4 model · MLX        │
+        │  One warm whisper-large-v3-turbo · MLX        │
         │  Local storage · smart text · TTL cleanup     │
         └───────────────────────────────────────────────┘
 ```
@@ -20,7 +20,7 @@
 
 - **Local and private**: Speech recognition runs on the Mac. The engine binds to `127.0.0.1`.
 - **One model, zero choices**: 4-bit `whisper-turbo` (`turbo-q4`) stays warm for fast, low-footprint dictation and file transcription. Language is detected automatically per utterance — mixed Italian/English just works.
-- **Native menu-bar app**: Global hotkey, paste into any app, microphone recording, and a one-row engine status you can click to start or restart.
+- **Native menu-bar app**: Global hotkey, paste into any app, microphone recording, and a one-row engine status showing the live model name reported by the engine; click it to start or restart.
 - **Notch HUD**: Apple-style status feedback with recording, transcription, result, error, and cancel states.
 - **Self-updating**: **Check for Updates…** installs the newest GitHub release and refreshes the engine.
 - **Finder Quick Action**: Right-click any file with an audio stream and transcribe it. The source file stays in place and `<file>.md` is saved beside it.
@@ -34,24 +34,27 @@
 | Mac | Apple Silicon (M1 or newer) |
 | macOS | 14.0 |
 | Storage | About 3 GB free |
-| Tools | [`uv`](https://docs.astral.sh/uv/), `ffmpeg` (`brew install ffmpeg`) |
+| Tools | [`uv`](https://docs.astral.sh/uv/) |
+<!-- TODO(merge): ffmpeg optionality below depends on b-engine's single-decode diff; coordinator confirms at merge -->
+| Optional | `ffmpeg` (`brew install ffmpeg`) — only needed to transcribe media files that are not WAV/PCM (for example MP3, OGG, M4A); dictation never uses it |
 
 ### Model and memory
 
-Transcribe keeps exactly one model warm: the 4-bit `whisper-large-v3-turbo` conversion (`turbo-q4`, about 450 MB of memory). The engine caps its reusable GPU cache at 256 MB, so the whole engine stays under about 0.9 GB.
+Transcribe keeps exactly one model warm: the 4-bit `whisper-large-v3-turbo` conversion (`turbo-q4`, about 450 MB of weights). The engine caps its reusable GPU cache at 256 MB. Measured engine memory (Apple M4, macOS 26.2, August 2026, `vmmap` physical footprint): about 1.0 GB idle-warm, with transient peaks up to about 1.7 GB while transcribing. Plain process RSS undercounts because MLX keeps weights in unified GPU memory.
 
-Language detection uses a tiny helper model (whisper-tiny, about 80 MB) per utterance — about 25 ms — so dictation results typically return in about one second for short utterances with no language setup.
+Language detection runs a tiny helper model (whisper-tiny, 71 MB on disk) once per utterance — about 60 ms measured — so dictation results typically return in about one second for short utterances with no language setup.
 
 Benchmarks on an M4 showed identical accuracy to full-precision weights (0% word error rate on English, 0.8% on Italian samples) at roughly 12% faster decode. See [docs/MODELS.md](docs/MODELS.md).
 
 ## Installation
 
-Install `ffmpeg` and the local engine:
+Install the local engine:
 
 ```bash
-brew install ffmpeg
 uv tool install --from git+https://github.com/gbrlpzz/transcribe transcribe
 ```
+
+Optional: install `ffmpeg` if you want to transcribe media files that are not WAV/PCM (`brew install ffmpeg`). Dictation and WAV file transcription do not use it.
 
 Build and install the menu-bar app:
 
@@ -179,14 +182,20 @@ make doctor
 
 ### Releasing
 
-1. Bump the version in `pyproject.toml`, `transcribe/__init__.py`,
-   `tests/test_engine.py`, and `app/Resources/Info.plist`
-   (`CFBundleShortVersionString` and `CFBundleVersion`).
+1. Bump the Python package version in `pyproject.toml`,
+   `transcribe/__init__.py`, and `tests/test_engine.py`. Bump the app
+   marketing version only in `app/Resources/Info.plist`
+   (`CFBundleShortVersionString` and `CFBundleVersion`) — the Makefile derives
+   the release zip name from it.
 2. Update `CHANGELOG.md`.
 3. `make test && make dist` — this builds the app and produces
    `release/Transcribe-<version>.zip`.
 4. Commit, tag `v<version>`, push, and publish a GitHub release with the zip
    attached. The app's **Check for Updates…** item finds it by tag and asset.
+
+## Engine runtime and credits
+
+The engine decodes Whisper through [mlx-whisper-diet](https://github.com/gbrlpzz/mlx-whisper-diet), our slim drop-in fork of [mlx-whisper](https://github.com/ml-explore/mlx-examples/tree/main/whisper) 0.4.3 (same `mlx_whisper` module, without the unused torch/numba/scipy dependency stack — about 750 MB less to install). See [NOTICE](NOTICE).
 
 ## License
 

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "transcribe"
-version = "0.5.0"
+version = "0.6.0"
 description = "Fully local dictation and transcription for Apple Silicon Macs: press a global hotkey anywhere, speak, and on-device Whisper (MLX) types your words into the focused app — a free, private local tool that also ships as a Prime Agent skill."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -23,9 +23,11 @@ classifiers = [
 ]
 
 # Apple Silicon Macs only: MLX is the one backend, turbo-q4 the one model.
+# mlx-whisper-diet is our slim drop-in fork of mlx-whisper 0.4.3 (same mlx_whisper
+# module): no torch/numba/scipy, ~750 MB less install. See NOTICE.
 dependencies = [
     "mlx==0.32.1",
-    "mlx-whisper==0.4.3",
+    "mlx-whisper-diet @ git+https://github.com/gbrlpzz/mlx-whisper-diet@v0.4.3-diet1",
 ]
 
 [project.optional-dependencies]

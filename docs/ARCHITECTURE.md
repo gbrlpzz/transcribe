@@ -7,7 +7,7 @@ Transcribe has four local parts:
 3. A command-line interface.
 4. An optional Prime Agent skill.
 
-All communication stays on `127.0.0.1:8765`.
+All communication stays on `127.0.0.1:8765`. The Python engine runs Whisper on MLX through [mlx-whisper-diet](https://github.com/gbrlpzz/mlx-whisper-diet), a slim drop-in fork of upstream mlx-whisper 0.4.3 with the same `mlx_whisper` module interface.
 
 ```text
 Menu-bar app ── POST /transcribe ──▶ Python engine
@@ -70,4 +70,4 @@ Swift and Python share this file:
 ~/Library/Application Support/transcribe/config.json
 ```
 
-The release uses one warm `turbo-q4` model with automatic language detection. Configurable values are the hotkey, the local port, a one-hour live cleanup TTL, and a seven-day file transcript TTL.
+The release uses one warm 4-bit whisper-large-v3-turbo model (`mlx-community/whisper-large-v3-turbo-4bit`) with automatic language detection. Configurable values are the hotkey, the local port, a one-hour live cleanup TTL, and a seven-day file transcript TTL.

@@ -8,7 +8,9 @@ Run:
 transcribe doctor
 ```
 
-The command checks `ffmpeg`, `mlx-whisper`, the microphone, Accessibility permissions, stale sessions, and whether the engine is running.
+The command checks the engine, `mlx-whisper`, the microphone, Accessibility permissions, stale sessions, and `ffmpeg` availability.
+<!-- TODO(merge): exact doctor wording depends on b-engine's diff (ffmpeg may downgrade from hard check to warning) -->
+`ffmpeg` is only needed for media files that are not WAV/PCM; dictation works without it.
 
 ## The engine is offline
 
@@ -23,7 +25,7 @@ You can also click **Engine: not running — Start** in the menu-bar app, or run
 
 ## The first request is slow
 
-The first run downloads the model weights: about 450 MB for `turbo-q4` plus about 80 MB for the language-detection helper. This happens once; later requests use the local cache.
+The first run downloads the model weights: about 450 MB for `turbo-q4` plus about 71 MB for the language-detection helper (roughly 520 MB total). This happens once; later requests use the local cache.
 
 Check the model cache:
 
@@ -55,7 +57,7 @@ Reinstall it:
 make quick-action-install
 ```
 
-Then open Finder, select a file, and choose **Quick Actions → Transcribe**. The service accepts all files. Transcription succeeds when the local `ffmpeg` build can find and decode an audio stream.
+Then open Finder, select a file, and choose **Quick Actions → Transcribe**. The service accepts all files. WAV files transcribe without extra tools; any other container needs a local `ffmpeg` build that can find and decode its audio stream.
 
 ## The source file disappeared
 
