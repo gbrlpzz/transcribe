@@ -113,3 +113,33 @@ def test_iter_sessions_tolerates_legacy_meta_keys(tmp_path, monkeypatch):
     assert loaded[0].transcript == "legacy"
     assert loaded[0].model == "m"
     assert not hasattr(loaded[0], "duration")
+
+
+def test_write_transcript_markdown_format(tmp_path):
+    audio = tmp_path / "meeting notes.m4a"
+    audio.write_bytes(b"x")
+    md = storage.write_transcript_markdown(str(audio), "hello world")
+    assert md == str(tmp_path / "meeting notes.md")
+    assert open(md).read() == "# meeting notes\n\nhello world\n"
+
+
+def test_save_result_persists_meta_and_swallows_oserror(tmp_path, monkeypatch):
+    monkeypatch.setenv("TRANSCRIBE_HOME", str(tmp_path))
+    result = {"text": "raw", "model": "m", "language": "en", "elapsed": 0.5}
+    storage.save_result("final text", result, None,
+                        source="file", keep_transcripts=True,
+                        source_path="/tmp/x.wav", transcript_path="")
+    sessions = list(storage.iter_sessions())
+    assert len(sessions) == 1
+    assert sessions[0].transcript == "final text"
+    # meta fields come from the engine result dict
+    import json
+    meta = json.load(open(sessions[0].meta_path))
+    assert meta["model"] == "m" and meta["language"] == "en"
+    # file jobs fall back to the deterministic sidecar path
+    assert meta["transcript_path"] == "/tmp/x.md"
+
+    def boom(*a, **k):
+        raise OSError("disk full")
+    monkeypatch.setattr(storage, "save_session", boom)
+    storage.save_result("t", result, None, source="live", keep_transcripts=True)

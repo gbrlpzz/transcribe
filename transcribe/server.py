@@ -23,7 +23,7 @@ from urllib.parse import urlparse
 
 from transcribe.config import load
 from transcribe.engine import Transcriber
-from transcribe.storage import clean, save_session
+from transcribe.storage import clean, save_result, write_transcript_markdown
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -102,27 +102,20 @@ class _Handler(BaseHTTPRequestHandler):
         if preserve_source:
             # The engine writes the transcript itself so a finished file job
             # produces its .md even if the requesting app timed out or quit.
-            md_path = os.path.splitext(audio_path)[0] + ".md"
             try:
-                title = os.path.splitext(os.path.basename(audio_path))[0]
-                with open(md_path, "w", encoding="utf-8") as fh:
-                    fh.write(f"# {title}\n\n{result['text']}\n")
+                md_path = write_transcript_markdown(audio_path, result["text"])
             except OSError:
                 md_path = ""  # app falls back to writing it
 
         # store a copy + transcript (TTL cleanup handles bloat)
-        try:
-            save_session(
-                None if preserve_source else audio_path,
-                result["text"],
-                model=result["model"], language=result.get("language", ""),
-                source="file" if preserve_source else "live",
-                keep_transcripts=self.server.config.keep_transcripts,
-                source_path=audio_path if preserve_source else "",
-                transcript_path=md_path,
-            )
-        except OSError:
-            pass  # never fail a transcription because of bookkeeping
+        save_result(
+            result["text"], result,
+            None if preserve_source else audio_path,
+            source="file" if preserve_source else "live",
+            keep_transcripts=self.server.config.keep_transcripts,
+            source_path=audio_path if preserve_source else "",
+            transcript_path=md_path,
+        )
 
         self._send(200, {
             "text": result["text"],
