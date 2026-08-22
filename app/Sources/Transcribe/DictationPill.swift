@@ -8,8 +8,8 @@ import QuartzCore
 /// - Interactive Tap-to-Cancel: click or tap the HUD to discard dictation immediately.
 /// - Calmed monochrome glass: dark vibrant backdrop, obsidian core, and specular hairline rim.
 /// - Notch-aware positioning: dead-centered under the hardware notch or menu bar.
-/// - 60 FPS live waveform: multi-band sound-reactive capsule bars with peak attack/decay ballistics
-///   and subtle organic idle ripple when silent.
+/// - Live waveform: multi-band sound-reactive capsule bars with fast attack /
+///   smooth decay ballistics that rest flat whenever the input is silent.
 /// - Crisp typography: SF Pro Medium text paired with semantic SF Symbols.
 final class DictationPill: NSPanel {
     enum PillState: Equatable {
@@ -458,8 +458,11 @@ final class DictationPill: NSPanel {
         [.recording: recordingStack, .transcribing: transcribingStack, .status: statusStack]
     }
 
-    func updateLevel(_ value: Float) {
-        waveform.level = value
+    /// The waveform pulls its level from this provider on every animation tick,
+    /// so no second timer is needed to feed samples in.
+    var levelProvider: (() -> Float)? {
+        get { waveform.levelProvider }
+        set { waveform.levelProvider = newValue }
     }
 
     func cancel() {
@@ -692,12 +695,17 @@ final class RecordingDotView: NSView {
 // MARK: - 60 FPS Multi-Band Audio Visualizer
 
 final class WaveformView: NSView {
-    var level: Float = 0
+    /// Single animation clock: the tick pulls a fresh level itself instead of
+    /// relying on a second timer feeding values in from outside.
+    var levelProvider: (() -> Float)?
 
     private var targetLevel: Float = 0
     private var smoothedLevel: Float = 0
     private var phase: Float = 0
     private var timer: Timer?
+    /// True while the input is silent and the last drawn frame already shows
+    /// the resting pose; ticks then do no work until sound returns.
+    private var isResting = false
 
     private let barCount = 19
     private let centerIndex = 9
@@ -722,13 +730,22 @@ final class WaveformView: NSView {
         // is hidden.
         let t = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
             guard let self else { return }
-            self.targetLevel = self.level
+            self.targetLevel = self.levelProvider?() ?? 0
 
             // Organic audio ballistics: fast attack, smooth exponential decay
             if self.targetLevel > self.smoothedLevel {
                 self.smoothedLevel += (self.targetLevel - self.smoothedLevel) * 0.40
             } else {
                 self.smoothedLevel += (self.targetLevel - self.smoothedLevel) * 0.10
+            }
+
+            // Bars rest when the input is silent: draw the static pose once,
+            // then stop redrawing until sound returns.
+            if self.targetLevel <= 0.001 && self.smoothedLevel <= 0.001 {
+                guard !self.isResting else { return }
+                self.isResting = true
+            } else {
+                self.isResting = false
             }
 
             self.phase += 0.08
@@ -741,9 +758,9 @@ final class WaveformView: NSView {
     func stop() {
         timer?.invalidate()
         timer = nil
-        level = 0
         targetLevel = 0
         smoothedLevel = 0
+        isResting = false
     }
 
     override var intrinsicContentSize: NSSize { NSSize(width: 82, height: 20) }
@@ -763,15 +780,11 @@ final class WaveformView: NSView {
             // Gaussian bell taper
             let taper = exp(-dist * dist * 1.8)
 
-            // Organic idle breathing wave when silent (so it never looks frozen)
-            let idleWave = CGFloat(sin(Double(phase) * 1.8 + Double(i) * 0.45)) * 1.2
-            let baseHeight: CGFloat = 3.0 + idleWave * taper
-
-            // Voice reactive wave
+            // Voice reactive wave (scales with level, so silence rests flat)
             let voiceWave = 0.55 + 0.45 * CGFloat(sin(Double(phase) * 3.5 + Double(i) * 0.85))
             let activeHeight = maxH * taper * env * voiceWave
 
-            heights[i] = max(2.5, min(maxH, baseHeight + activeHeight))
+            heights[i] = max(3.0, min(maxH, 3.0 + activeHeight))
         }
 
         // Single smoothing pass for liquid contour continuity

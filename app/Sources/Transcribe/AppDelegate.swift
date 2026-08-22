@@ -29,7 +29,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var pendingFileStatuses: [DictationPill.PillState] = []
     private var appReady = false
     private var queuedOpenURLs: [URL] = []
-    private var levelTimer: Timer?
     private var globalEscapeMonitor: Any?
     private var localEscapeMonitor: Any?
 
@@ -59,6 +58,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func setupPill() {
+        // One animation clock: the waveform's own 60 Hz tick reads the recorder
+        // meter directly (no separate level timer).
+        pill.levelProvider = { [weak self] in self?.recorder.level() ?? 0 }
         pill.onCancel = { [weak self] _ in
             self?.cancelDictation()
         }
@@ -212,17 +214,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.button?.image = Self.templateImage("mic")
         statusItem.button?.contentTintColor = .systemRed
         refreshHUD()
-        levelTimer?.invalidate()
-        let t = Timer(timeInterval: 0.033, repeats: true) { [weak self] _ in
-            self?.pill.updateLevel(self?.recorder.level() ?? 0)
-        }
-        RunLoop.main.add(t, forMode: .common)
-        levelTimer = t
     }
 
     private func showTranscribing() {
-        levelTimer?.invalidate()
-        levelTimer = nil
         statusItem.button?.contentTintColor = fileHUDVisible ? .systemOrange : nil
         refreshHUD()
     }
@@ -380,8 +374,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         liveRequestID = nil
         liveTask?.cancel()
         liveTask = nil
-        levelTimer?.invalidate()
-        levelTimer = nil
         stopEscapeMonitoring()
 
         if let url = recorder.currentURL {
