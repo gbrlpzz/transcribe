@@ -21,7 +21,6 @@ struct BenchRecord: Codable {
     var finalizeMs: Double?
     var drainMs: Double?
     var stopToTextMs: Double?
-    var partialEmitted: Int
     var chars: Int
     var text: String
 }
@@ -103,12 +102,6 @@ enum DictBench {
         let engine: SpeechDictationEngine? = await MainActor.run {
             let source = FileBufferSource(url: fileURL, speed: speed)
             let engine = SpeechDictationEngine(localeManager: nil, audioSource: source)
-            engine.onPartial = { text in
-                if text != nil {
-                    box.partials += 1
-                    if box.firstPartialAt == nil { box.firstPartialAt = DispatchTime.now() }
-                }
-            }
             do {
                 try engine.start(localeSetting: requestedLocale == "auto" ? nil : requestedLocale)
             } catch {
@@ -131,7 +124,7 @@ enum DictBench {
             finalizeMs: metrics?.finalizeMs,
             drainMs: metrics?.drainMs,
             stopToTextMs: metrics?.stopToTextMs,
-            partialEmitted: box.partials, chars: 0, text: "")
+            chars: 0, text: "")
         switch res {
         case .success(let text): rec.text = text; rec.chars = text.count
         case .failure(let e):    rec.text = "ERROR: \(e.localizedDescription)"
@@ -140,8 +133,6 @@ enum DictBench {
     }
 
     final class RunBox: @unchecked Sendable {
-        var partials = 0
-        var firstPartialAt: DispatchTime?
     }
 
     // MARK: cancel cycles (AC-D5)

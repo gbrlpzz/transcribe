@@ -13,9 +13,8 @@ import QuartzCore
 /// - Crisp typography: SF Pro Medium text paired with semantic SF Symbols.
 final class DictationPill: NSPanel {
     enum PillState: Equatable {
-        /// Live waveform with pulsing beacon. `partial` carries the streaming
-        /// live text (volatile revisions, design §10); nil = no text yet.
-        case recording(partial: String?)
+        /// Live waveform with pulsing beacon.
+        case recording
         /// Spinner; carries a file name when transcribing a dropped file.
         case transcribing(fileName: String?)
         /// Transient status flash that auto-dismisses.
@@ -76,7 +75,6 @@ final class DictationPill: NSPanel {
     private let recordingStack = NSStackView()
     private let recordingDot = RecordingDotView()
     private let waveform = WaveformView()
-    private let liveLabel = NSTextField(labelWithString: "")
 
     private let transcribingStack = NSStackView()
     private let activityIndicator = NSProgressIndicator()
@@ -239,17 +237,9 @@ final class DictationPill: NSPanel {
         configureStack(recordingStack, spacing: 10)
         recordingDot.translatesAutoresizingMaskIntoConstraints = false
         waveform.translatesAutoresizingMaskIntoConstraints = false
-        liveLabel.translatesAutoresizingMaskIntoConstraints = false
-        liveLabel.font = NSFont.systemFont(ofSize: 12, weight: .medium)
-        liveLabel.textColor = NSColor(white: 0.92, alpha: 1.0)
-        liveLabel.lineBreakMode = .byTruncatingHead   // tail-truncated live text
-        liveLabel.cell?.truncatesLastVisibleLine = true
-        liveLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        liveLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
         recordingStack.addArrangedSubview(recordingDot)
         recordingStack.addArrangedSubview(waveform)
-        recordingStack.addArrangedSubview(liveLabel)
         waveformWidthConstraint = waveform.widthAnchor.constraint(equalToConstant: 82)
 
         NSLayoutConstraint.activate([
@@ -361,9 +351,8 @@ final class DictationPill: NSPanel {
 
     private func config(for state: PillState) -> StateConfig? {
         switch state {
-        case .recording(let partial):
-            return StateConfig(stack: .recording, icon: nil,
-                               label: Self.tailClipped(partial),
+        case .recording:
+            return StateConfig(stack: .recording, icon: nil, label: "",
                                tooltip: "Click to cancel dictation (or press Esc)",
                                autoDismissAfter: nil, liveSizing: true)
         case .transcribing(let fileName):
@@ -434,8 +423,6 @@ final class DictationPill: NSPanel {
 
         switch config.stack {
         case .recording:
-            liveLabel.stringValue = config.label
-            liveLabel.isHidden = config.label.isEmpty
             recordingDot.startPulsing()
             waveform.start()
             activityIndicator.stopAnimation(nil)
@@ -480,13 +467,6 @@ final class DictationPill: NSPanel {
 
     func cancel() {
         show(.cancelled)
-    }
-
-    /// Tail-truncated single-line form of the streaming partial (design §10).
-    private static func tailClipped(_ text: String?) -> String {
-        guard var s = text?.trimmingCharacters(in: .whitespacesAndNewlines), !s.isEmpty else { return "" }
-        if s.count > 48 { s = "…" + s.suffix(47) }
-        return s
     }
 
     private func transition(toWidth width: CGFloat,

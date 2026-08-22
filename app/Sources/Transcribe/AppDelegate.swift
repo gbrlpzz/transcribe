@@ -19,7 +19,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // below stays byte-for-byte 0.6.0 (cutover safety).
     private var nativeEngine: SpeechDictationEngine?
     private var nativeActive = false
-    private var livePartial: String?
     private let signposter = OSSignposter(subsystem: "app.transcribe", category: "dictation")
     private var fileHUDVisible = false
     private var engine: EngineClient!
@@ -344,7 +343,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                              horizontalOffset: shouldShowFile ? -18 : 0)
         switch liveState {
         case .recording:
-            pill.show(.recording(partial: livePartial))
+            pill.show(.recording)
         case .transcribing:
             pill.show(.transcribing(fileName: nil))
         case .idle:
@@ -499,8 +498,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard config.engine == "apple" else { return }
         let localeManager = LocaleManager()
         let eng = SpeechDictationEngine(localeManager: localeManager)
-        eng.onPartial = { [weak self] text in self?.handleLivePartial(text) }
-        eng.onNotice = { [weak self] message in self?.handleLiveNotice(message) }
         eng.onFailure = { [weak self] message in self?.handleNativeFailure(message) }
         nativeEngine = eng
         Task { await localeManager.bootstrap() }   // AC-L1 cache fill + reservations
@@ -508,7 +505,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func startDictationNative() {
         liveCancelled = false
-        livePartial = nil
         Task {
             // np-G1 ordering: mic first (guarded above), speech second.
             guard await SpeechPermissions.ensureAuthorizedForDictation() else {
@@ -589,18 +585,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             showIdleIcon()
             refreshHUD()
         }
-    }
-
-    /// Streaming partials → HUD label (≤10 Hz deduped upstream, design §10).
-    private func handleLivePartial(_ text: String?) {
-        livePartial = text
-        if liveState == .recording { pill.show(.recording(partial: text)) }
-    }
-
-    /// Friendly mid-session status reuses the live-label slot ("Downloading
-    /// Italiano…"); real partials overwrite it as soon as they flow.
-    private func handleLiveNotice(_ message: String) {
-        if liveState == .recording { pill.show(.recording(partial: message)) }
     }
 
     /// Engine already cleaned itself; tear down session UI visibly (AC-D4:

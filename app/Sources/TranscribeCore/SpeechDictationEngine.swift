@@ -11,7 +11,7 @@ import os
 //     → AVAudioConverter → 16 kHz / mono / interleaved Int16   [np-G7, ar-§2]
 //     → unbounded AsyncStream<AnalyzerInput>                   [np-G8]
 //     → SpeechAnalyzer([SpeechTranscriber(.progressiveTranscription)])
-//         volatile results → HUD live text (.recording(partial:))  [design §10]
+//         volatile results → internal recognition frontier (never rendered)
 //         final results    → committed transcript (paste uses finals ONLY)
 //   hotkey-up → finalizeAndFinishThroughEndOfInput()            [np-G2]
 //             → chosen lane text → Paste.paste (app layer)
@@ -271,27 +271,6 @@ final class IngestPipeline: @unchecked Sendable {
 
 // MARK: - Pure decision helpers (unit-tested)
 
-/// ≤10 Hz partial cadence for the HUD label (design §10), deduped.
-public struct PartialThrottle: Equatable, Sendable {
-    public var minimumInterval: TimeInterval
-    var lastEmitAt: TimeInterval
-    var lastText: String
-
-    public init(minimumInterval: TimeInterval = 0.1) {
-        self.minimumInterval = minimumInterval
-        self.lastEmitAt = -.infinity
-        self.lastText = ""
-    }
-
-    public mutating func shouldEmit(text: String, at t: TimeInterval) -> Bool {
-        if text == lastText { return false }
-        if t - lastEmitAt < minimumInterval { return false }
-        lastEmitAt = t
-        lastText = text
-        return true
-    }
-}
-
 /// One recognition lane's tally for the auto-mode lane pick.
 public struct LaneTally: Equatable, Sendable {
     public var id: String            // BCP-47
@@ -397,11 +376,6 @@ public final class SpeechDictationEngine {
         let transcriber: SpeechTranscriber
     }
 
-    /// HUD live text, throttled/deduped (nil = nothing heard yet).
-    public var onPartial: ((String?) -> Void)?
-    /// Friendly transient status surfaced through the HUD label
-    /// ("Downloading Italiano…" while assets install mid-hotkey).
-    public var onNotice: ((String) -> Void)?
     /// Mid-session hard failure (assets stall, analyzer error). The engine has
     /// already cleaned itself; the app layer tears down session UI.
     public var onFailure: ((String) -> Void)?
@@ -423,7 +397,6 @@ public final class SpeechDictationEngine {
     private var firstFinalRank: [ObjectIdentifier: Int] = [:]
     private var finalCounter = 0
     private var currentLaneID: String?
-    private var throttle = PartialThrottle()
     private var sessionError: Error?
     /// Set by failSession alongside cleanup so the REAL failure reason survives
     /// to finish()/cancel-time reporting (np-G1 lesson: never lose the why).
@@ -555,7 +528,6 @@ public final class SpeechDictationEngine {
             // survivors; a pinned locale that stays dark is a hard error.
             for (idx, lane) in resolved.enumerated() {
                 if await laneReady(lane.transcriber) { continue }
-                onNotice?("Downloading \(displayLanguage(lane.id))…")
                 if let lm = localeManager {
                     try? await lm.ensureInstalled(Locale(identifier: lane.id))
                 }
@@ -564,7 +536,6 @@ public final class SpeechDictationEngine {
                     throw DictationError.assetsNotReady(displayLanguage(lane.id))
                 }
                 resolved.remove(at: idx)
-                onNotice?("\(displayLanguage(lane.id)) not ready — using \(displayLanguage(resolved.first!.id))")
                 break
             }
             guard !resolved.isEmpty else { throw DictationError.speechUnavailable }
@@ -667,7 +638,6 @@ public final class SpeechDictationEngine {
             firstPartialAt = now()
             signposter.emitEvent("dictation.firstPartial")
         }
-        emitPartial()
     }
 
     /// Live text of a lane: committed finals joined + volatile tail.
@@ -681,15 +651,6 @@ public final class SpeechDictationEngine {
     private func laneKey(for id: String?) -> ObjectIdentifier? {
         let lane = lanes.first { $0.id == id } ?? lanes.first
         return lane.map { ObjectIdentifier($0.transcriber) }
-    }
-
-    /// ≤10 Hz deduped emission; follows the last lane that produced a final
-    /// (pre-first-final: the first/system-prior lane). Design §10.
-    private func emitPartial() {
-        let followed = currentLaneID ?? lanes.first?.id
-        let text = liveText(of: followed)
-        guard throttle.shouldEmit(text: text, at: now()) else { return }
-        onPartial?(text.isEmpty ? nil : text)
     }
 
     /// Chosen transcript at finalize (heuristic contract: LanePicker docs).
@@ -722,7 +683,6 @@ public final class SpeechDictationEngine {
         committed = [:]; tail = [:]; firstFinalRank = [:]
         finalCounter = 0
         currentLaneID = nil
-        throttle = PartialThrottle()
         isActive = false
         sawText = false
         sessionError = nil
@@ -745,7 +705,6 @@ public final class SpeechDictationEngine {
         committed = [:]; tail = [:]; firstFinalRank = [:]
         finalCounter = 0
         currentLaneID = nil
-        throttle = PartialThrottle()
         sessionError = nil
         pendingSessionError = nil
         sawText = false

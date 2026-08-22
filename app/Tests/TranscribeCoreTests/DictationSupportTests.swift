@@ -6,24 +6,6 @@ import TranscribeCore
 // (synthetic clips through the real pipeline on this machine).
 enum DictationSupportTests {
 
-    static func testThrottleFirstEmitPasses() throws {
-        var t = PartialThrottle(minimumInterval: 0.1)
-        try require(t.shouldEmit(text: "Hello", at: 100.0))
-    }
-
-    static func testThrottleDedupesIdenticalText() throws {
-        var t = PartialThrottle(minimumInterval: 0.1)
-        try require(t.shouldEmit(text: "Hello", at: 100.0))
-        try require(!t.shouldEmit(text: "Hello", at: 130.0))   // same text, later time
-    }
-
-    static func testThrottleRateLimit() throws {
-        var t = PartialThrottle(minimumInterval: 0.1)
-        try require(t.shouldEmit(text: "a", at: 100.0))
-        try require(!t.shouldEmit(text: "ab", at: 100.05))     // too soon
-        try require(t.shouldEmit(text: "abc", at: 100.101))    // boundary passed
-    }
-
     static func testLanePickerPrefersFinalsOverLongerVolatileTail() throws {
         // Lane B has more live chars but no finals: finals win (np §3).
         let lanes = [
@@ -90,9 +72,6 @@ enum DictationSupportTests {
 
     static var allTests: [(String, TestCase)] {
         [
-            ("throttleFirstEmitPasses", testThrottleFirstEmitPasses),
-            ("throttleDedupesIdenticalText", testThrottleDedupesIdenticalText),
-            ("throttleRateLimit", testThrottleRateLimit),
             ("lanePickerPrefersFinalsOverLongerVolatileTail", testLanePickerPrefersFinalsOverLongerVolatileTail),
             ("lanePickerCharCountRanking", testLanePickerCharCountRanking),
             ("lanePickerEarlierFinalBreaksTies", testLanePickerEarlierFinalBreaksTies),
