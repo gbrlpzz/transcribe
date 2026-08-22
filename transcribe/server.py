@@ -111,11 +111,10 @@ class _Handler(BaseHTTPRequestHandler):
                 md_path = ""  # app falls back to writing it
 
         # store a copy + transcript (TTL cleanup handles bloat)
-        duration = result.get("duration", 0.0)
         try:
             save_session(
                 None if preserve_source else audio_path,
-                result["text"], duration=duration,
+                result["text"],
                 model=result["model"], language=result.get("language", ""),
                 source="file" if preserve_source else "live",
                 keep_transcripts=self.server.config.keep_transcripts,

@@ -7,7 +7,7 @@ def test_save_and_clean(tmp_path, monkeypatch):
     monkeypatch.setenv("TRANSCRIBE_HOME", str(tmp_path))
     wav = tmp_path / "rec.wav"
     wav.write_bytes(b"RIFFfake")
-    session = storage.save_session(str(wav), "hello world", duration=1.5, model="m", language="en")
+    session = storage.save_session(str(wav), "hello world", model="m", language="en")
     assert os.path.exists(session.recording)
     assert os.path.exists(session.meta_path)
 
@@ -88,3 +88,28 @@ def test_clean_uses_separate_live_and_file_ttls_and_preserves_source(tmp_path, m
     assert str(markdown) in removed
     assert not os.path.exists(markdown)
     assert os.path.exists(source)
+
+
+def test_iter_sessions_tolerates_legacy_meta_keys(tmp_path, monkeypatch):
+    """Pre-0.6 metas carry a "duration" key (always 0.0, field removed in 0.6).
+
+    The loader must keep reading old session JSONs unchanged: unknown keys
+    are ignored and nothing else about the record is disturbed.
+    """
+    import json
+
+    monkeypatch.setenv("TRANSCRIBE_HOME", str(tmp_path))
+    wav = tmp_path / "old.wav"
+    wav.write_bytes(b"x")
+    session = storage.save_session(str(wav), "legacy", model="m", language="en")
+    meta = json.loads(open(session.meta_path).read())
+    meta["duration"] = 1.5  # as written by <= 0.5.x
+    meta["smart_text"] = True  # even older leftovers must be ignored too
+    with open(session.meta_path, "w") as fh:
+        json.dump(meta, fh)
+
+    loaded = list(storage.iter_sessions())
+    assert len(loaded) == 1
+    assert loaded[0].transcript == "legacy"
+    assert loaded[0].model == "m"
+    assert not hasattr(loaded[0], "duration")

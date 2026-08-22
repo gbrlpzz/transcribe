@@ -145,7 +145,6 @@ def _maybe_keep(args, cfg, wav: str | None, text: str, result: dict,
         try:
             save_session(
                 wav, text,
-                duration=result.get("duration", 0.0),
                 model=result.get("model", ""),
                 language=result.get("language", ""),
                 source=source,

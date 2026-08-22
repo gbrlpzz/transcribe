@@ -28,7 +28,6 @@ class Session:
     recording: str          # absolute path to the wav ("" if deleted)
     transcript: str = ""
     created_at: float = field(default_factory=time.time)
-    duration: float = 0.0
     model: str = ""
     language: str = ""
     source: str = "cli"     # "live" | "file" | legacy "cli"/"app"/"agent"
@@ -48,7 +47,6 @@ def save_session(
     recording: str | None,
     transcript: str,
     *,
-    duration: float = 0.0,
     model: str = "",
     language: str = "",
     source: str = "cli",
@@ -75,7 +73,7 @@ def save_session(
 
     session = Session(
         id=sid, day=day, recording=stored_wav, transcript=transcript,
-        created_at=time.time(), duration=duration, model=model,
+        created_at=time.time(), model=model,
         language=language, source=source, source_path=source_path,
         transcript_path=transcript_path,
     )
@@ -85,7 +83,6 @@ def save_session(
         meta: dict[str, Any] = {
             "id": session.id,
             "created_at": session.created_at,
-            "duration": session.duration,
             "model": session.model,
             "language": session.language,
             "source": session.source,
@@ -123,7 +120,6 @@ def iter_sessions() -> Iterator[Session]:
                 else "",
                 transcript=meta.get("transcript", ""),
                 created_at=meta.get("created_at", 0.0),
-                duration=meta.get("duration", 0.0),
                 model=meta.get("model", ""),
                 language=meta.get("language", ""),
                 source=meta.get("source", "cli"),
