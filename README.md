@@ -1,6 +1,6 @@
 # Transcribe
 
-**Local dictation and audio transcription for macOS.** Press a global hotkey, speak, and Transcribe types the result into the focused app. Audio stays on your Mac.
+**Local dictation and audio transcription for Apple Silicon Macs.** Press a global hotkey, speak, and Transcribe types the result into the focused app. One model stays warm, language is detected automatically, audio never leaves your Mac.
 
 ```
 ┌─────────────────────────────┐     ┌──────────────────────────┐

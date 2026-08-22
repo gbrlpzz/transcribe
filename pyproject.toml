@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "transcribe"
 version = "0.5.0"
-description = "Fully local, native macOS dictation and transcription: press a global hotkey anywhere, speak, and on-device Whisper (MLX) types your words into the focused app — a free, private local tool that also ships as a Prime Agent skill."
+description = "Fully local dictation and transcription for Apple Silicon Macs: press a global hotkey anywhere, speak, and on-device Whisper (MLX) types your words into the focused app — a free, private local tool that also ships as a Prime Agent skill."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
