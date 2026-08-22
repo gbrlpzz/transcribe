@@ -1,6 +1,80 @@
 # Changelog
 
-## 0.5.0 — lean pass (unreleased)
+## 1.0.0 — Leggerissimo
+
+Native rebuild on Apple's on-device speech stack (macOS 26 `SpeechAnalyzer`). The Python
+engine, HTTP server, uv toolchain, model downloads, and ffmpeg dependency are gone.
+
+Measured on the reference M4 (warm, p50 unless noted):
+
+- dictation stop→paste-ready 58 ms (en), 42 ms (de); auto dual-language 68 ms; p95 122 ms
+- file RTF 0.0175x cold / 0.0168x warm on a 240 s recording; AAC identical within noise
+- app bundle 0.6 MB (binary 601,904 B signed, icon 15,613 B); release zip ~252 KB
+- installed footprint: from ~1.5 GB (Python toolchain + models) to 0.6 MB
+- 50-case test battery green; live dual-lane, cancel-storm ×20, double-tap regression verified
+
+Added:
+- streaming recognition during speech (internal; paste latency is the visible effect)
+- auto language mode: two recognizers on one stream, best committed lane wins (+4 ms)
+- Language submenu (Auto/en/it/de/es variants) persisting to config.json
+- universal `transcribe` CLI inside the app binary (file · doctor · languages), single-binary
+  dispatch via argv[0]; agent-agnostic SKILL.md
+- docs/APPLE-SPEECH-API-NOTES.md: verified field notes on the new Apple speech API
+
+Changed:
+- sessions and `<file>.md` outputs are byte-identical to 0.6.0 (sha256-verified)
+- config.json gains `locale`; obsolete keys are ignored and no longer written
+- minimum macOS is now 26
+
+Removed:
+- Python package, pytest suite, pyproject/uv packaging, engine server, port key
+- model downloads and HF cache (~514 MB), ffmpeg requirement, engine skill plumbing
+
+## 0.6.0 — diet engine + honesty pass (unreleased)
+
+Measured vs 0.5.0 on Apple M4, macOS 26.2 (August 2026). Every number below
+is from an actual run. Dictation E2E was re-measured on the merged engine
+under ~2x background system load: treat those rows as "unchanged within
+noise" rather than regressions — the wins that are robust to load are listed
+with their own isolated measurements.
+
+| Area | 0.5.0 | 0.6.0 | Delta |
+|---|---|---|---|
+| Tool install size | 1.02 GB | ~248 MB fresh venv (`du -sk`) | −76% |
+| Engine cold import (`import mlx_whisper`) | ~620–730 ms | ~122–142 ms steady | −~0.5 s |
+| Dictation fixed paste delay | +120 ms every utterance | kept after live testing showed synthetic Cmd+V races some apps' input handling | reliability first |
+| ffmpeg decodes per dictation utterance | 2 (~31 ms each) | 0 (PCM read in-process) | −~31–62 ms per utterance |
+| Short-utterance E2E (HTTP) | 1.02 s median | 1.07 s under 2x higher background load; unchanged within noise, minus the deleted paste delay and ffmpeg decodes | engine-side flat, app-side faster |
+| Language detection cost | ~59–61 ms (ffmpeg spawn + decode) | **19–22 ms** (in-process PCM) | ~3x |
+| Cold start to ready | 0.74 s | **0.43 s** | −42% |
+| Stop → warm restart | 0.41 s | **0.32 s** | −22% |
+| Engine idle memory | 1.0 GB footprint (vmmap) | **0.91 GB** footprint / 87 MB RSS | better |
+| Dictate during file jobs | blocked (`engine busy` until the job ends) | utterance served from a temporary second model lane; lane auto-evicts when idle | parallel again |
+| Long-session stability | quality can drift after dozens of jobs in one process | engine quietly rebuilds its warm model every 40 transcriptions (~0.5 s, invisible) | bounded |
+| Engine memory idle-warm | ~1.0 GB physical footprint | ~1.0 GB (unchanged; weights dominate) | honest wording replaces "<0.9 GB" claim |
+| Language detection honesty | claimed ~25 ms | measured 58.8–61.1 ms, docs corrected | truth |
+| Release zip junk | 14 `__MACOSX/` entries | 0 entries (23 → 9 zip entries) | clean |
+| Repo weight | +208 KB committed icon artifacts | deleted (regenerable via one script) | hygiene |
+| App code | DictationPill 875 → 797 LOC (state table); 358 Swift lines deleted / 276 added app-wide (measured vs 0.5.0) | simpler |
+
+- **Diet engine**: the runtime now uses
+  [mlx-whisper-diet](https://github.com/gbrlpzz/mlx-whisper-diet), our public
+  slim drop-in fork of mlx-whisper 0.4.3 (same `mlx_whisper` module). It drops
+  torch (dead code upstream: nothing imported it) and makes numba/scipy
+  optional extras only needed for word timestamps. Same transcripts on the
+  default path — verified token-identical output against stock 0.4.3.
+- **Dictation path**: the app no longer sleeps 120 ms before pasting, and the
+  engine hands decoded PCM to mlx-whisper directly instead of shelling out to
+  ffmpeg twice per utterance. ffmpeg is no longer required for dictation or
+  WAV file jobs; it stays optional for other media containers.
+- **Docs honesty**: language detection documented at its measured ~60 ms (was
+  claimed ~25 ms); memory documented as ~1.0 GB physical footprint idle,
+  ~1.7 GB peak (the old "<0.9 GB" held only for process RSS); model download
+  total stated precisely (~520 MB).
+- **Hygiene**: release zips are built without Finder `__MACOSX/` metadata;
+  regenerable icon artifacts (208 KB) removed from the repo.
+
+## 0.5.0 — lean pass
 
 One model, one backend, automatic language: everything else deleted.
 

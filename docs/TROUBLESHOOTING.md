@@ -1,100 +1,49 @@
 # Troubleshooting
 
-## Check the installation
+First stop: `transcribe doctor` (or drag the app binary to a terminal and run it).
+It reports macOS version, speech-stack availability, permission states, and per-language readiness.
 
-Run:
+## Dictation does nothing / no text appears
 
-```bash
-transcribe doctor
-```
+1. System Settings → Privacy & Security → **Microphone** → allow Transcribe.
+2. System Settings → Privacy & Security → **Speech Recognition** → allow Transcribe.
+   Without this the recognizer produces no output at all — the app checks both before every
+   session and shows an alert if denied.
 
-The command checks `ffmpeg`, `mlx-whisper`, the microphone, Accessibility permissions, stale sessions, and whether the engine is running.
+## Paste does not happen
 
-## The engine is offline
+System Settings → Privacy & Security → **Accessibility** → allow Transcribe. Until then the
+transcript is copied to the clipboard instead of pasted.
 
-Start or restart it from the CLI:
+## A language shows NOT READY
 
-```bash
-transcribe start    # starts the background engine
-transcribe restart  # stop + start, use after any hiccup
-```
-
-You can also click **Engine: not running — Start** in the menu-bar app, or run it in the foreground with `transcribe serve`. The server listens only on `127.0.0.1:8765`.
-
-## The first request is slow
-
-The first run downloads the model weights: about 450 MB for `turbo-q4` plus about 80 MB for the language-detection helper. This happens once; later requests use the local cache.
-
-Check the model cache:
+Language assets are delivered by macOS. Either add the language under
+System Settings → Keyboard → **Dictation**, or run:
 
 ```bash
-du -sh ~/.cache/huggingface/hub/models--mlx-community--whisper-large-v3-turbo-4bit
+transcribe languages --install it-IT
 ```
 
-Do not start a second engine process on port `8765`. If an old process is still listening, run `transcribe restart`.
+Installs are OS-managed and can take minutes. If one stalls at 0%, the app fails fast with
+guidance instead of waiting — retry after a system update.
 
-## Transcription fails with an MLX stream error
+## Hotkey conflict
 
-MLX GPU streams belong to the thread that created them. The server warms the model and runs inference on one dedicated engine thread. Restart the engine after upgrading MLX:
+If ^Space is taken by another app, Transcribe says so at launch. Change the hotkey in
+`~/Library/Application Support/transcribe/config.json` (`"hotkey": "ctrl+option+space"`),
+then restart the app.
+
+## Sessions disk usage
+
+Live recordings expire after one hour, file transcripts after seven days. Current data:
+open the menu → **Sessions Folder…**.
+
+## Reinstall / reset permissions
 
 ```bash
-transcribe restart
+tccutil reset Microphone com.gbrlpzz.transcribe
+tccutil reset SpeechRecognition com.gbrlpzz.transcribe
+tccutil reset Accessibility com.gbrlpzz.transcribe
 ```
 
-If the error continues, reinstall the supported tool environment with the tested MLX versions:
-
-```bash
-uv tool install --force --from git+https://github.com/gbrlpzz/transcribe transcribe
-```
-
-## Finder does not show the Quick Action
-
-Reinstall it:
-
-```bash
-make quick-action-install
-```
-
-Then open Finder, select a file, and choose **Quick Actions → Transcribe**. The service accepts all files. Transcription succeeds when the local `ffmpeg` build can find and decode an audio stream.
-
-## The source file disappeared
-
-The app sends `preserve_source: true` for Finder and menu-bar file jobs. The source should remain in its original folder. The transcript is saved beside it as `<file>.md`.
-
-If the source is still moved, verify that the installed app is current:
-
-```bash
-make app-install
-```
-
-## Paste does not work
-
-Run:
-
-```bash
-transcribe doctor
-```
-
-Enable Accessibility for Transcribe in **System Settings → Privacy & Security → Accessibility**. The app opens this page when setup is incomplete. Until then, results are left on the pasteboard so you can paste manually.
-
-## The HUD looks stuck
-
-A long file can take time. The file spinner stays visible while the engine works. The live recorder can run at the same time, but final model requests share one warm engine and may wait for the current request.
-
-Use **Esc** or click the active HUD to cancel the live or file job.
-
-## Clean old sessions
-
-Sessions are stored under:
-
-```text
-~/Library/Application Support/transcribe/sessions/
-```
-
-Remove expired data:
-
-```bash
-transcribe clean
-```
-
-Live sessions use the one-hour TTL. Generated file transcripts use the seven-day TTL. This does not remove the active model cache or Finder source files.
+Then relaunch the app and approve the prompts again.

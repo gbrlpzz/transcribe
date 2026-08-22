@@ -24,3 +24,6 @@ app/dist/
 
 # macOS
 .DS_Store
+
+# Convoy war room (never ship)
+.work

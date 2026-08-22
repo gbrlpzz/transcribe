@@ -6,7 +6,7 @@ import Foundation
 /// A release is a Git tag whose assets include a zipped `Transcribe.app`
 /// (built by `make dist`). Checking compares the bundle's short version
 /// string with the latest tag; updating downloads the zip, swaps the bundle
-/// in / Applications, refreshes the engine tool, and relaunches.
+/// in /Applications, and relaunches.
 enum Updater {
     static let repo = "gbrlpzz/transcribe"
 
@@ -132,20 +132,15 @@ enum Updater {
         return entries.compactMap(findAppRecursive).first
     }
 
-    /// Detached helper: waits for this process to exit, swaps the bundle,
-    /// refreshes the engine tool from the same tag, relaunches.
+    /// Detached helper: waits for this process to exit, swaps the bundle, and relaunches.
     private static func swapAndRelaunch(stagedApp: URL, version: String) {
         let pid = ProcessInfo.processInfo.processIdentifier
         let dest = "/Applications/Transcribe.app"
-        let tag = "v\(version)"
         let script = """
         #!/bin/sh
         while kill -0 \(pid) 2>/dev/null; do sleep 0.5; done
         rm -rf '\(dest)'
         ditto '\(stagedApp.path)' '\(dest)'
-        if command -v uv >/dev/null 2>&1; then
-          uv tool install --force --reinstall --from "git+https://github.com/\(repo).git@\(tag)" transcribe >/dev/null 2>&1 &
-        fi
         open '\(dest)'
         """
         let helper = stagedApp.deletingLastPathComponent().appendingPathComponent("swap.sh")
