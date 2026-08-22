@@ -324,7 +324,9 @@ public enum LanePicker {
         if let best = eligible.max(by: {
             ($0.finalChars, -$0.firstFinalOrder) < ($1.finalChars, -$1.firstFinalOrder)
         }) { return best.id }
-        return lanes.max(by: { $0.liveChars < $1.liveChars })?.id
+        guard let best = lanes.max(by: { $0.liveChars < $1.liveChars }),
+              best.liveChars > 0 else { return nil }
+        return best.id
     }
 }
 
