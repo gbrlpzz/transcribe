@@ -169,7 +169,7 @@ class Transcriber:
     def is_warm(self) -> bool:
         return self._main_model is not None
 
-    def transcribe(self, audio_path: str, *, verbose: bool = False) -> dict[str, Any]:
+    def transcribe(self, audio_path: str) -> dict[str, Any]:
         self.load()
         t0 = time.time()
 
@@ -193,7 +193,6 @@ class Transcriber:
                 wav_path,
                 path_or_hf_repo=self._model_path or self.model,
                 language=lang,
-                verbose=None if not verbose else verbose,
             )
             text = result.get("text", "").strip()
             detected = result.get("language", lang or "")
@@ -212,6 +211,6 @@ class Transcriber:
         }
 
 
-def transcribe(audio_path: str, *, verbose: bool = False) -> dict[str, Any]:
+def transcribe(audio_path: str) -> dict[str, Any]:
     """One-shot transcription (loads the model, transcribes, returns)."""
-    return Transcriber().transcribe(audio_path, verbose=verbose)
+    return Transcriber().transcribe(audio_path)
