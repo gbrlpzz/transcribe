@@ -7,7 +7,7 @@ One small app. Nothing to install.
 |---|---|
 | Paste fires after key-up | **58–105 ms** (p50) |
 | 4-minute audio file → transcript | **4,200 ms** — RTF **0.0176×** |
-| Entire app | **0.6 MB** |
+| Entire app | **612 KB** |
 | Download | **one ~250 KB zip** |
 | Setup after drag-to-Applications | **none** |
 
