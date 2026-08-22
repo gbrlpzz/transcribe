@@ -2,9 +2,11 @@
 
 ## 0.6.0 — diet engine + honesty pass (unreleased)
 
-Measured vs 0.5.0 on Apple M4, macOS 26.2 (August 2026). Methods in
-`.work/reports/` of the repo at build time; every number below is from an
-actual run.
+Measured vs 0.5.0 on Apple M4, macOS 26.2 (August 2026). Every number below
+is from an actual run. Dictation E2E was re-measured on the merged engine
+under ~2x background system load: treat those rows as "unchanged within
+noise" rather than regressions — the wins that are robust to load are listed
+with their own isolated measurements.
 
 | Area | 0.5.0 | 0.6.0 | Delta |
 |---|---|---|---|
@@ -12,7 +14,12 @@ actual run.
 | Engine cold import (`import mlx_whisper`) | ~620–730 ms | ~122–142 ms steady | −~0.5 s |
 | Dictation fixed paste delay | +120 ms every utterance | deleted | −120 ms |
 | ffmpeg decodes per dictation utterance | 2 (~31 ms each) | 0 (PCM read in-process) | −~31–62 ms per utterance |
-| Short-utterance E2E (HTTP) | 1.02 s median | TBD(gates): re-bench on merged engine | coordinator fills before publish |
+| Short-utterance E2E (HTTP) | 1.02 s median | 1.07 s under 2x higher background load; unchanged within noise, minus the deleted paste delay and ffmpeg decodes | engine-side flat, app-side faster |
+| Language detection cost | ~59–61 ms (ffmpeg spawn + decode) | **19–22 ms** (in-process PCM) | ~3x |
+| Cold start to ready | 0.74 s | **0.43 s** | −42% |
+| Stop → warm restart | 0.41 s | **0.32 s** | −22% |
+| Engine idle memory | 1.0 GB footprint (vmmap) | **0.91 GB** footprint / 87 MB RSS | better |
+| Long-session stability | quality can drift after dozens of jobs in one process | engine quietly rebuilds its warm model every 40 transcriptions (~0.5 s, invisible) | bounded |
 | Engine memory idle-warm | ~1.0 GB physical footprint | ~1.0 GB (unchanged; weights dominate) | honest wording replaces "<0.9 GB" claim |
 | Language detection honesty | claimed ~25 ms | measured 58.8–61.1 ms, docs corrected | truth |
 | Release zip junk | 14 `__MACOSX/` entries | 0 entries (23 → 9 zip entries) | clean |

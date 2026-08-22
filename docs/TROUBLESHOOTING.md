@@ -26,6 +26,8 @@ You can also click **Engine: not running — Start** in the menu-bar app, or run
 
 The engine runs one transcription at a time by design. A second request while one is running is rejected immediately with HTTP 503 `engine busy` - retry when the current job finishes; nothing is queued. The same immediate 503 applies to engine reloads triggered while a job runs (the menu-bar **Check for Updates…** flow retries automatically).
 
+The engine also rebuilds its warm model in the background every 40 transcriptions (a fraction of a second while idle). This keeps long dictation sessions accurate - MLX sessions slowly degrade output quality after many jobs in one process.
+
 A single request is hard-capped at 30 minutes server-side (`REQUEST_TIMEOUT_S`). If the cap fires, the client gets an HTTP 500, the engine unlocks itself, and later requests work normally; if transcription ever wedges persistently, `transcribe restart` clears it.
 
 ## The first request is slow

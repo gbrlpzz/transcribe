@@ -33,6 +33,13 @@ from transcribe.storage import clean, save_result, write_transcript_markdown
 # tests monkeypatch this to something small.
 REQUEST_TIMEOUT_S = 1800.0
 
+# A long-lived MLX session slowly degrades output quality: after dozens of
+# jobs in one process, chunked decodes can hallucinate language tokens
+# (observed as stray CJK / "<|ko|>" leaks on long files). Rebuilding the warm
+# model between requests bounds that. Cheap by design: a warm reload is a
+# fraction of a second of idle time, invisible to the next dictation.
+RELOAD_EVERY_N = 40
+
 
 class _Handler(BaseHTTPRequestHandler):
     server: "TranscribeServer"  # type: ignore[assignment]
@@ -158,6 +165,11 @@ class _Handler(BaseHTTPRequestHandler):
             "transcript_path": md_path,
         })
 
+        # Bound long-session quality drift: once enough jobs have run on this
+        # process, quietly rebuild the warm model before more pile up.
+        if self.server.note_job_done_and_check_recycle():
+            self.server.recycle_if_due()
+
 
 class TranscribeServer(ThreadingHTTPServer):
     daemon_threads = True
@@ -174,8 +186,40 @@ class TranscribeServer(ThreadingHTTPServer):
         self.verbose = verbose
         self.lock = threading.Lock()
         self.transcriber = Transcriber()
+        self._jobs_since_load = 0
+        self._recycle_gate = threading.Lock()
         clean(live_ttl_hours=self.config.live_cleanup_ttl_hours,
               file_ttl_hours=self.config.cleanup_ttl_hours)
+
+    def note_job_done_and_check_recycle(self) -> bool:
+        """Count a finished transcription; True when a model refresh is due."""
+        self._jobs_since_load += 1
+        return self._jobs_since_load >= RELOAD_EVERY_N
+
+    def recycle_if_due(self) -> None:
+        """Rebuild the warm model in the background (never blocks a response).
+
+        Skips politely when the engine is mid-job; the counter stays due, so
+        the next completed request retries. The gate prevents stacked reloads.
+        """
+        if not self._recycle_gate.acquire(blocking=False):
+            return
+
+        def _work():
+            try:
+                if self.lock.acquire(blocking=False):
+                    try:
+                        self.run_engine(self.transcriber.load)
+                        self._jobs_since_load = 0
+                        print(f"[server] recycled model after "
+                              f"{RELOAD_EVERY_N} transcriptions", flush=True)
+                    finally:
+                        self.lock.release()
+            finally:
+                self._recycle_gate.release()
+
+        threading.Thread(target=_work, name="transcribe-recycle",
+                         daemon=True).start()
 
     def run_engine(self, operation):
         """Run model work on the one thread that also performs warm-up."""

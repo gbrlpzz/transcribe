@@ -31,7 +31,7 @@ class _FakeTranscriber:
         return True
 
     def load(self):
-        pass
+        self.calls.append("load")
 
     def warm(self):
         pass
@@ -168,3 +168,45 @@ def test_engine_error_still_returns_500_and_releases_lock(fake_server, tmp_path)
     assert "engine exploded" in json.loads(excinfo.value.read())["error"]
     assert srv.lock.acquire(blocking=False)
     srv.lock.release()
+
+
+def test_recycle_rebuilds_model_after_n_jobs(fake_server, monkeypatch, tmp_path):
+    """Long-session guard: after RELOAD_EVERY_N jobs the model is rebuilt in
+    the background and the counter resets - without failing any request."""
+    srv, fake = fake_server
+    monkeypatch.setattr(server_mod, "RELOAD_EVERY_N", 3)
+    wav = tmp_path / "a.wav"
+    wav.write_bytes(b"RIFF")
+
+    for _ in range(5):
+        wav.write_bytes(b"RIFF")  # server consumes (moves) each posted file
+        with _post_transcribe(srv, str(wav)) as resp:
+            assert resp.status == 200
+
+    # the recycle thread resets the counter when it rebuilds; later jobs may
+    # re-count on top of the fresh model, so assert the rebuild itself
+    deadline = time.time() + 5
+    while time.time() < deadline and fake.calls.count("load") == 0:
+        time.sleep(0.05)
+    assert fake.calls.count("load") >= 1, "model should have been rebuilt"
+    assert srv._jobs_since_load < server_mod.RELOAD_EVERY_N
+
+
+def test_recycle_skips_while_engine_busy(fake_server, monkeypatch, tmp_path):
+    """A due recycle never fights a running job: it waits for a later one."""
+    srv, fake = fake_server
+    monkeypatch.setattr(server_mod, "RELOAD_EVERY_N", 1)
+    wav = tmp_path / "a.wav"
+    wav.write_bytes(b"RIFF")
+
+    # occupy the engine, then complete a job while the lock is held
+    with srv.lock:
+        assert srv.note_job_done_and_check_recycle()
+        srv.recycle_if_due()
+        assert srv._jobs_since_load == 1, "recycle must not reset while busy"
+    # once free, the next due completion goes through
+    srv.recycle_if_due()
+    deadline = time.time() + 5
+    while time.time() < deadline and srv._jobs_since_load != 0:
+        time.sleep(0.05)
+    assert srv._jobs_since_load == 0
