@@ -84,7 +84,7 @@ final class EngineClient {
             }
             let proc = Process()
             proc.executableURL = URL(fileURLWithPath: binary)
-            proc.arguments = ["serve", "--port", "\(port)"]
+            proc.arguments = ["serve"]  // port comes from the shared config.json
             proc.standardOutput = FileHandle.nullDevice
             proc.standardError = FileHandle.nullDevice
             // GUI apps launched via `open` get a minimal PATH without Homebrew,
