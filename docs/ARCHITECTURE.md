@@ -35,13 +35,13 @@ CLI and Prime Agent skill ──────────────▶ same eng
 | `HotKey` | `app/Sources/Transcribe/HotKey.swift` | Registers the global tap-to-toggle shortcut through Carbon. |
 | `Paste` | `app/Sources/Transcribe/Paste.swift` | Copies text and sends `⌘V` through macOS Accessibility. |
 | `Engine` | `transcribe/engine.py` | Loads the single 4-bit turbo model on MLX and keeps it warm; detects language per utterance with whisper-tiny. |
-| `Server` | `transcribe/server.py` | Exposes `/health`, `/transcribe`, and `/reload`. Runs warm-up and inference on one dedicated engine thread; caps requests at 30 minutes, rejects concurrent jobs fast, and recycles the model every 40 jobs. |
+| `Server` | `transcribe/server.py` | Exposes `/health`, `/transcribe`, and `/reload`. One primary engine thread caps requests at 30 minutes and recycles the model every 40 jobs; a lazily created overflow lane keeps dictation alive during long file jobs and evicts itself after idling. |
 | `Storage` | `transcribe/storage.py` | Stores sessions and removes expired data. |
 | `CLI` | `transcribe/cli.py` | Provides dictation, file jobs, engine control (`start`/`stop`/`restart`), cleanup, configuration, and diagnostics. |
 
 ## Inference and concurrency
 
-The engine keeps one model warm. MLX GPU streams are thread-local, so warm-up and inference run on the same dedicated thread. After every 40 transcriptions the server quietly rebuilds the warm model in the background (a fraction of a second while idle): long-lived MLX sessions slowly degrade output quality, and the rebuild bounds that.
+The engine keeps one model warm. MLX GPU streams are thread-local, so warm-up and inference run on the same dedicated thread. After every 40 transcriptions the server quietly rebuilds the warm model in the background (a fraction of a second while idle): long-lived MLX sessions slowly degrade output quality, and the rebuild bounds that. When a dictation arrives while a file job holds the engine, a second overflow lane (own model copy, own worker thread) serves the utterance; it evicts after ~10 idle minutes so steady-state memory stays single-model.
 
 The app keeps live and file state separate:
 

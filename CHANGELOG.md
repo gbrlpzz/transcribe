@@ -19,6 +19,7 @@ with their own isolated measurements.
 | Cold start to ready | 0.74 s | **0.43 s** | −42% |
 | Stop → warm restart | 0.41 s | **0.32 s** | −22% |
 | Engine idle memory | 1.0 GB footprint (vmmap) | **0.91 GB** footprint / 87 MB RSS | better |
+| Dictate during file jobs | blocked (`engine busy` until the job ends) | utterance served from a temporary second model lane; lane auto-evicts when idle | parallel again |
 | Long-session stability | quality can drift after dozens of jobs in one process | engine quietly rebuilds its warm model every 40 transcriptions (~0.5 s, invisible) | bounded |
 | Engine memory idle-warm | ~1.0 GB physical footprint | ~1.0 GB (unchanged; weights dominate) | honest wording replaces "<0.9 GB" claim |
 | Language detection honesty | claimed ~25 ms | measured 58.8–61.1 ms, docs corrected | truth |
