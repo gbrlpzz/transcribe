@@ -42,13 +42,20 @@ class _Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _reload(self):
-        with self.server.lock:
-            try:
-                self.server.run_engine(lambda: self.server.transcriber.load())
-                self._send(200, {"status": "reloaded",
-                                 "model": self.server.transcriber.model})
-            except Exception as exc:  # noqa: BLE001
-                self._send(500, {"error": f"model load failed: {exc}"})
+        # A reload rebuilds the warm engine, which can take a while. When a
+        # transcription holds the engine lock, answer immediately with a
+        # retryable 503 instead of queueing behind a minutes-long file job.
+        if not self.server.lock.acquire(blocking=False):
+            self._send(503, {"error": "engine busy — a transcription is already running"})
+            return
+        try:
+            self.server.run_engine(lambda: self.server.transcriber.load())
+            self._send(200, {"status": "reloaded",
+                             "model": self.server.transcriber.model})
+        except Exception as exc:  # noqa: BLE001
+            self._send(500, {"error": f"model load failed: {exc}"})
+        finally:
+            self.server.lock.release()
 
     def do_GET(self):  # noqa: N802
         path = urlparse(self.path).path
