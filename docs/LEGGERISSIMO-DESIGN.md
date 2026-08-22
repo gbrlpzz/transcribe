@@ -412,3 +412,24 @@ From the R36 lock, verified at merge gates:
 - wer-kit BLOCKER-FOR-VERDICT stands with the coordinator/owner: ≥30 real
   utterances must be dictated + harvested inside the 1 h TTL window before any
   R39 GO/NO-GO.
+
+## 16. Cutover strategy (how W2 lands without breaking the running app)
+
+Native lanes land ALONGSIDE the 0.6.0 MLX path. Routing reads one new config
+key (AppConfig, b-locales):
+
+```swift
+var engine: String = "mlx"   // "mlx" (0.6.0 default) | "apple"
+```
+
+- `"mlx"` → today's EngineClient/Recorder paths, byte-for-byte unchanged.
+- `"apple"` → SpeechDictationEngine / FileTranscriber paths.
+- Same key drives the CLI implicitly (CLI is native-only; it never had an MLX
+  twin inside the bundle).
+
+Benefits: gates and the owner can A/B both engines on one machine (R34/R39
+live-test discipline) with instant rollback = flip the key; parity evidence is
+a config flip, not a rebuild. The cutover commit (default → `"apple"`) happens
+only after gates green; the deletions ledger (§11) executes in W4 after the
+owner's live test. EngineClient/Recorder stay compiled-but-unrouted between
+cutover and deletion.
