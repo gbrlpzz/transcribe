@@ -2,7 +2,7 @@
 
 PYTHON ?= .venv/bin/python
 
-.PHONY: help venv install app app-install quick-action-install skill test doctor clean
+.PHONY: help venv install app app-install quick-action-install skill test doctor clean dist
 
 help: ## show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
@@ -38,3 +38,11 @@ doctor: ## diagnose the local setup
 
 clean: ## remove sessions older than the TTL
 	.venv/bin/transcribe clean
+
+VERSION ?= $(shell /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' app/Resources/Info.plist)
+
+dist: app ## build the release zip to attach to a GitHub release
+	mkdir -p release
+	rm -f release/Transcribe-$(VERSION).zip
+	ditto -c -k --sequesterRsrc --keepParent app/dist/Transcribe.app release/Transcribe-$(VERSION).zip
+	@echo "✓ release/Transcribe-$(VERSION).zip — attach this to the GitHub release for tag v$(VERSION)"

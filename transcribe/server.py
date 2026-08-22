@@ -79,7 +79,13 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(400, {"error": f"audio file not found: {audio_path}"})
             return
 
-        with self.server.lock:
+        # One model, one engine thread. A second request while one is running
+        # fails fast with a truthful message instead of hanging the client for
+        # minutes behind a long file job.
+        if not self.server.lock.acquire(blocking=False):
+            self._send(503, {"error": "engine busy — a transcription is already running"})
+            return
+        try:
             try:
                 # MLX's GPU stream is thread-local. Keep warm-up and every
                 # inference on one dedicated engine thread instead of letting
@@ -89,6 +95,20 @@ class _Handler(BaseHTTPRequestHandler):
             except Exception as exc:  # noqa: BLE001 - report any engine failure
                 self._send(500, {"error": str(exc)})
                 return
+        finally:
+            self.server.lock.release()
+
+        md_path = ""
+        if preserve_source:
+            # The engine writes the transcript itself so a finished file job
+            # produces its .md even if the requesting app timed out or quit.
+            md_path = os.path.splitext(audio_path)[0] + ".md"
+            try:
+                title = os.path.splitext(os.path.basename(audio_path))[0]
+                with open(md_path, "w", encoding="utf-8") as fh:
+                    fh.write(f"# {title}\n\n{result['text']}\n")
+            except OSError:
+                md_path = ""  # app falls back to writing it
 
         # store a copy + transcript (TTL cleanup handles bloat)
         duration = result.get("duration", 0.0)
@@ -100,8 +120,7 @@ class _Handler(BaseHTTPRequestHandler):
                 source="file" if preserve_source else "live",
                 keep_transcripts=self.server.config.keep_transcripts,
                 source_path=audio_path if preserve_source else "",
-                transcript_path=(os.path.splitext(audio_path)[0] + ".md"
-                                 if preserve_source else ""),
+                transcript_path=md_path,
             )
         except OSError:
             pass  # never fail a transcription because of bookkeeping
@@ -111,6 +130,7 @@ class _Handler(BaseHTTPRequestHandler):
             "language": result.get("language", ""),
             "model": result["model"],
             "elapsed": result.get("elapsed", 0.0),
+            "transcript_path": md_path,
         })
 
 

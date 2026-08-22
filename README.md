@@ -176,6 +176,17 @@ make app-install
 make doctor
 ```
 
+### Releasing
+
+1. Bump the version in `pyproject.toml`, `transcribe/__init__.py`,
+   `tests/test_engine.py`, and `app/Resources/Info.plist`
+   (`CFBundleShortVersionString` and `CFBundleVersion`).
+2. Update `CHANGELOG.md`.
+3. `make test && make dist` — this builds the app and produces
+   `release/Transcribe-<version>.zip`.
+4. Commit, tag `v<version>`, push, and publish a GitHub release with the zip
+   attached. The app's **Check for Updates…** item finds it by tag and asset.
+
 ## License
 
 MIT. See [NOTICE](NOTICE) for third-party runtime and model attributions.

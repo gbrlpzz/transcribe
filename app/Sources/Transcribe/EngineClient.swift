@@ -26,7 +26,9 @@ final class EngineClient {
         var req = URLRequest(url: baseURL.appendingPathComponent("transcribe"))
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.timeoutInterval = 300
+        // Dictations are seconds-long: fail fast when the engine is busy with
+        // a long file job. File jobs may legitimately run for many minutes.
+        req.timeoutInterval = preserveSource ? 1800 : 90
         let body: [String: Any] = [
             "path": path.path,
             "preserve_source": preserveSource,
@@ -55,7 +57,8 @@ final class EngineClient {
             let result = TranscriptionResult(
                 text: json["text"] as? String ?? "",
                 language: json["language"] as? String ?? "",
-                model: json["model"] as? String ?? ""
+                model: json["model"] as? String ?? "",
+                transcriptPath: json["transcript_path"] as? String ?? ""
             )
             DispatchQueue.main.async { completion(.success(result)) }
         }
@@ -151,4 +154,5 @@ struct TranscriptionResult {
     let text: String
     let language: String
     let model: String
+    let transcriptPath: String
 }

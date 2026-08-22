@@ -191,6 +191,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(.separator())
 
+        menu.addItem(NSMenuItem(title: "Check for Updates…", action: #selector(checkForUpdates),
+                                keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "About Transcribe", action: #selector(showAbout),
                                 keyEquivalent: ""))
         let quit = NSMenuItem(title: "Quit Transcribe", action: #selector(NSApplication.terminate(_:)),
@@ -521,12 +523,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if text.isEmpty {
                 pendingFileStatuses.append(.empty)
             } else {
-                do {
-                    _ = try writeMarkdown(for: url, text: text)
-                    pendingFileStatuses.append(.fileResult(url.lastPathComponent))
-                } catch {
-                    pendingFileStatuses.append(.error("Could not save file"))
+                // The engine writes the .md beside the source before responding;
+                // only fall back to writing it here if it reported none.
+                let serverMD = URL(fileURLWithPath: transcription.transcriptPath)
+                if transcription.transcriptPath.isEmpty
+                    || !FileManager.default.fileExists(atPath: serverMD.path) {
+                    do {
+                        _ = try writeMarkdown(for: url, text: text)
+                    } catch {
+                        pendingFileStatuses.append(.error("Could not save file"))
+                        startNextFileIfNeeded()
+                        return
+                    }
                 }
+                pendingFileStatuses.append(.fileResult(url.lastPathComponent))
             }
         case .failure:
             pendingFileStatuses.append(.error("File failed"))
@@ -588,9 +598,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSWorkspace.shared.open(base)
     }
 
+    @objc private func checkForUpdates() {
+        Updater.checkForUpdates()
+    }
+
     @objc private func showAbout() {
         let alert = NSAlert()
-        alert.messageText = "Transcribe"
+        alert.messageText = "Transcribe \(Updater.currentVersion)"
         alert.informativeText = "Fully local dictation and transcription.\n\nWhisper runs on this Mac — nothing leaves your machine. Audio and transcripts are cleaned up automatically."
         alert.addButton(withTitle: "OK")
         alert.runModal()
