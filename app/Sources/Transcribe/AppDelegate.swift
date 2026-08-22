@@ -73,9 +73,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    // Finder may deliver a file as an open-file event, while the Quick Action
-    // launcher can deliver a transcribe:// URL. Accept both forms and defer
-    // them until the engine client exists when the app is launched cold.
+    // Finder and the Quick Action hand files over as open-file events.
+    // Defer them until the engine client exists on a cold launch.
     func application(_ application: NSApplication, open urls: [URL]) {
         NSLog("Transcribe: received open URLs (%ld)", urls.count)
         if !appReady {
@@ -97,19 +96,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func handleOpenURL(_ url: URL) {
-        if url.scheme == "transcribe", url.host == "file" {
-            guard let path = URLComponents(url: url, resolvingAgainstBaseURL: false)?
-                .queryItems?.first(where: { $0.name == "path" })?.value else {
-                NSLog("Transcribe: file URL had no path")
-                return
-            }
-            enqueueFile(URL(fileURLWithPath: path))
-        } else if url.isFileURL {
-            enqueueFile(url)
-        } else {
-            NSLog("Transcribe: ignoring unsupported URL scheme %@", url.scheme ?? "(none)")
+        guard url.isFileURL else {
+            NSLog("Transcribe: ignoring unsupported URL %@", absoluteStringOf(url))
+            return
         }
+        enqueueFile(url)
     }
+
+    private func absoluteStringOf(_ url: URL) -> String { url.absoluteString }
 
     private func startEscapeMonitoring() {
         stopEscapeMonitoring()

@@ -12,9 +12,9 @@ def test_save_and_clean(tmp_path, monkeypatch):
     assert os.path.exists(session.meta_path)
 
     # too young -> survives
-    assert storage.clean(ttl_hours=48) == []
+    assert storage.clean(live_ttl_hours=48, file_ttl_hours=48) == []
     # TTL 0 -> everything older than now is removed
-    removed = storage.clean(ttl_hours=0)
+    removed = storage.clean(live_ttl_hours=0, file_ttl_hours=0)
     assert len(removed) == 2
     assert not os.path.exists(session.recording)
     assert not os.path.exists(session.meta_path)
@@ -28,6 +28,25 @@ def test_iter_sessions(tmp_path, monkeypatch):
     sessions = list(storage.iter_sessions())
     assert len(sessions) == 1
     assert sessions[0].transcript == "first"
+
+
+def test_legacy_app_source_sessions_fully_clean_without_orphans(tmp_path, monkeypatch):
+    """v0.2/v0.3 wrote source "app" for both flows; cleanup still reclaims them."""
+    monkeypatch.setenv("TRANSCRIBE_HOME", str(tmp_path))
+    markdown = tmp_path / "old-recording.md"
+    markdown.write_text("# old-recording\n\ntext\n")
+    storage.save_session(
+        None, "text", source="app",
+        transcript_path=str(markdown),
+    )
+    import json
+    metas = list(storage.iter_sessions())
+    assert len(metas) == 1
+
+    removed = storage.clean(live_ttl_hours=0, file_ttl_hours=0)
+    assert str(markdown) in removed          # generated md never orphans
+    assert not markdown.exists()
+    assert not os.path.exists(metas[0].meta_path)
 
 
 def test_clean_uses_separate_live_and_file_ttls_and_preserves_source(tmp_path, monkeypatch):

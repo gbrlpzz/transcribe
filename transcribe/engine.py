@@ -8,7 +8,6 @@ from Hugging Face and cached locally; transcription never leaves the machine.
 from __future__ import annotations
 
 import os
-import platform
 import time
 from typing import Any
 
@@ -46,7 +45,12 @@ def _local_model_path(repo: str) -> str:
 
     try:
         from huggingface_hub import snapshot_download
-        snapshot = Path(snapshot_download(repo_id=repo))
+        try:
+            # Cached models resolve locally without a hub round-trip, which
+            # shaves latency off every engine start.
+            snapshot = Path(snapshot_download(repo_id=repo, local_files_only=True))
+        except Exception:
+            snapshot = Path(snapshot_download(repo_id=repo))
     except Exception:
         return repo  # let mlx-whisper surface its own download error
     if ((snapshot / "weights.safetensors").exists()
@@ -211,31 +215,3 @@ class Transcriber:
 def transcribe(audio_path: str, *, verbose: bool = False) -> dict[str, Any]:
     """One-shot transcription (loads the model, transcribes, returns)."""
     return Transcriber().transcribe(audio_path, verbose=verbose)
-
-
-def detect_system_info() -> dict[str, Any]:
-    """Inspect the local machine and return hardware facts for ``doctor``."""
-    import subprocess
-
-    cpu_brand = ""
-    ram_gb = 0
-    try:
-        mem_bytes = int(subprocess.check_output(
-            ["sysctl", "-n", "hw.memsize"], text=True).strip())
-        ram_gb = round(mem_bytes / (1024 ** 3))
-    except Exception:
-        pass
-    try:
-        cpu_brand = subprocess.check_output(
-            ["sysctl", "-n", "machdep.cpu.brand_string"], text=True).strip()
-    except Exception:
-        pass
-
-    hw_desc = f"{cpu_brand or 'Apple Silicon'}, {ram_gb} GB unified memory" if ram_gb \
-        else (cpu_brand or "Apple Silicon")
-    return {
-        "hardware_desc": hw_desc,
-        "ram_gb": ram_gb,
-        "cpu_brand": cpu_brand,
-        "recommended_model": "turbo-q4 (4-bit whisper-turbo, always warm)",
-    }

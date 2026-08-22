@@ -51,7 +51,7 @@ def dictate(seconds: float | None = None, paste: bool = False) -> dict:
     try:
         session = save_session(
             wav, result["text"], duration=0.0, model=result.get("model", ""),
-            language=result.get("language", ""), source="agent",
+            language=result.get("language", ""), source="live",
             keep_transcripts=cfg.keep_transcripts,
         )
         result["recording"] = session.recording
@@ -64,9 +64,16 @@ def dictate(seconds: float | None = None, paste: bool = False) -> dict:
 
 
 def clean(ttl_hours: float | None = None, dry_run: bool = False) -> list[str]:
-    """Remove expired live data and file transcripts. Returns removed paths."""
+    """Remove expired live data and file transcripts. Returns removed paths.
+
+    ``ttl_hours`` applies one window to both kinds; default uses the
+    configured one-hour live / seven-day file TTLs.
+    """
     cfg = load()
-    return _clean(ttl_hours, dry_run=dry_run,
+    if ttl_hours is not None:
+        return _clean(dry_run=dry_run, live_ttl_hours=ttl_hours,
+                      file_ttl_hours=ttl_hours)
+    return _clean(dry_run=dry_run,
                   live_ttl_hours=cfg.live_cleanup_ttl_hours,
                   file_ttl_hours=cfg.cleanup_ttl_hours)
 

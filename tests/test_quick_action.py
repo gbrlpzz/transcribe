@@ -24,14 +24,8 @@ def test_quick_action_declares_a_runner_compatible_file_type():
 
 def test_quick_action_routes_to_the_native_file_status_hud():
     info = plistlib.loads(APP_INFO.read_bytes())
-    schemes = [
-        scheme
-        for entry in info["CFBundleURLTypes"]
-        for scheme in entry["CFBundleURLSchemes"]
-    ]
     document = plistlib.loads((WORKFLOW / "document.wflow").read_bytes())
     command = document["actions"][0]["action"]["ActionParameters"]["COMMAND_STRING"]
 
-    assert "transcribe" in schemes
     assert 'open -g -a "$APP" "$file"' in command
     assert "Transcribe.app" in command

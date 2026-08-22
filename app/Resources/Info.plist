@@ -18,17 +18,6 @@
     <string>Transcribe</string>
     <key>CFBundleDisplayName</key>
     <string>Transcribe</string>
-    <key>CFBundleURLTypes</key>
-    <array>
-        <dict>
-            <key>CFBundleURLName</key>
-            <string>com.gbrlpzz.transcribe</string>
-            <key>CFBundleURLSchemes</key>
-            <array>
-                <string>transcribe</string>
-            </array>
-        </dict>
-    </array>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>

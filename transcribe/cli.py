@@ -20,18 +20,18 @@ import shutil
 import subprocess
 import sys
 import time
+import types
 import urllib.error
 import urllib.request
 
 from transcribe import __version__
 from transcribe.audio import record_interactive
 from transcribe.config import config_path, load, save
-from transcribe.engine import Transcriber, detect_system_info, transcribe
+from transcribe.engine import Transcriber, transcribe
 from transcribe.paste import check_accessibility, paste_text
 from transcribe.smarttext import apply_smart_text, strip_whitespace
 from transcribe.storage import clean, save_session
 
-APP_BUILD_SH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app", "build.sh")
 
 
 def _parse() -> argparse.ArgumentParser:
@@ -39,9 +39,6 @@ def _parse() -> argparse.ArgumentParser:
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--version", action="version", version=f"transcribe {__version__}")
     sub = p.add_subparsers(dest="command")
-
-    listen = sub.add_parser("listen", help="record from the microphone and transcribe")
-    listen.add_argument("--no-keep", action="store_true", help="delete audio+transcript immediately")
 
     file_p = sub.add_parser("file", help="transcribe existing audio files")
     file_p.add_argument("paths", nargs="+", metavar="AUDIO")
@@ -370,12 +367,27 @@ def cmd_config(args, cfg) -> int:
 
 
 def cmd_doctor(args, cfg) -> int:
-    info = detect_system_info()
+    import subprocess
+
+    cpu_brand = ""
+    ram_gb = 0
+    try:
+        ram_gb = round(int(subprocess.check_output(
+            ["sysctl", "-n", "hw.memsize"], text=True).strip()) / (1024 ** 3))
+    except Exception:
+        pass
+    try:
+        cpu_brand = subprocess.check_output(
+            ["sysctl", "-n", "machdep.cpu.brand_string"], text=True).strip()
+    except Exception:
+        pass
+    hardware = f"{cpu_brand or 'Apple Silicon'}, {ram_gb} GB unified memory" if ram_gb \
+        else (cpu_brand or "Apple Silicon")
 
     print("System Diagnostics")
     print("──────────────────")
-    print(f"Hardware:     {info['hardware_desc']}")
-    print(f"Model:        {info['recommended_model']}")
+    print(f"Hardware:     {hardware}")
+    print("Model:        turbo-q4 (4-bit whisper-turbo, always warm)")
     print()
 
     ok = True
@@ -447,11 +459,9 @@ def cmd_app(args, cfg) -> int:
 def main(argv: list[str] | None = None) -> int:
     args = _parse().parse_args(argv)
     cfg = load()
-    if args.command in (None, "listen"):
-        if args.command is None:
-            # bare `transcribe` behaves like `listen`
-            return cmd_listen(_parse().parse_args(["listen"]), cfg)
-        return cmd_listen(args, cfg)
+    if args.command is None:
+        # bare `transcribe` dictates from the microphone
+        return cmd_listen(types.SimpleNamespace(no_keep=False), cfg)
     handlers = {
         "file": cmd_file, "serve": cmd_serve, "clean": cmd_clean,
         "config": cmd_config, "doctor": cmd_doctor, "app": cmd_app,
