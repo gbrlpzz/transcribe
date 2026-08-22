@@ -11,12 +11,14 @@ final class EngineClient {
 
     private var baseURL: URL { URL(string: "http://127.0.0.1:\(port)")! }
 
-    func health(completion: @escaping (Bool) -> Void) {
+    func health(completion: @escaping (_ up: Bool, _ model: String?) -> Void) {
         var req = URLRequest(url: baseURL.appendingPathComponent("health"))
         req.timeoutInterval = 2
-        URLSession.shared.dataTask(with: req) { _, response, _ in
+        URLSession.shared.dataTask(with: req) { data, response, _ in
             let ok = (response as? HTTPURLResponse)?.statusCode == 200
-            DispatchQueue.main.async { completion(ok) }
+            let model = (try? JSONSerialization.jsonObject(with: data ?? Data()) as? [String: Any])
+                .flatMap { $0["model"] as? String }
+            DispatchQueue.main.async { completion(ok, model) }
         }.resume()
     }
 
@@ -79,7 +81,7 @@ final class EngineClient {
 
     /// Make sure the Python engine server is reachable; spawn it if needed.
     func ensureEngineRunning(completion: @escaping (Bool) -> Void) {
-        health { [self] ok in
+        health { [self] ok, _ in
             if ok { completion(true); return }
             guard let binary = Self.resolveEngineBinary() else {
                 completion(false)
@@ -108,7 +110,7 @@ final class EngineClient {
             var attempts = 0
             func poll() {
                 attempts += 1
-                self.health { ok in
+                self.health { ok, _ in
                     if ok {
                         completion(true)
                     } else if attempts < 240 {  // 60 s ceiling for first-run downloads

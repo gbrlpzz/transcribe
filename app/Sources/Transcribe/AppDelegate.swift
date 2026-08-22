@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var fileHUDVisible = false
     private var engine: EngineClient!
     private var config = AppConfig.load()
+    private var currentModelName: String?
 
     // Live dictation and file jobs are independent. The engine serializes
     // inference, but recording and file work can overlap without replacing
@@ -47,8 +48,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         engine.ensureEngineRunning { [weak self] ok in
             self?.refreshEngineState()
         }
-        enginePollTimer = Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { [weak self] _ in
-            self?.engine.health { ok in self?.engineUp = ok }
+        // Menu open and every transcribe re-check health anyway; this slow poll
+        // only keeps the menu label fresh while the menu is closed.
+        enginePollTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+            self?.checkEngine()
         }
         appReady = true
         let urls = queuedOpenURLs
@@ -240,7 +243,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.setupItem.isHidden = true
             }
             if self.engineUp {
-                self.engineItem.title = "Engine: running — \(self.modelShortName())"
+                let suffix = self.modelShortName().map { " — \($0)" } ?? ""
+                self.engineItem.title = "Engine: running\(suffix)"
                 self.engineItem.action = #selector(self.restartEngine)
             } else {
                 self.engineItem.title = "Engine: not running — Start"
@@ -249,8 +253,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func modelShortName() -> String {
-        "turbo-q4"
+    /// Short model label derived from the engine's own /health report, so the
+    /// menu can never drift from the model actually loaded.
+    private func modelShortName() -> String? {
+        guard let name = currentModelName else { return nil }
+        let short = name.split(separator: "/").last.map(String.init) ?? name
+        return short.hasPrefix("whisper-") ? String(short.dropFirst("whisper-".count)) : short
+    }
+
+    private func checkEngine() {
+        engine.health { [weak self] up, model in
+            guard let self else { return }
+            if let model { self.currentModelName = model }
+            self.engineUp = up
+        }
     }
 
     private func setupHotKey() {
@@ -613,9 +629,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 extension AppDelegate: NSMenuDelegate {
     func menuWillOpen(_ menu: NSMenu) {
-        engine.health { [weak self] ok in
-            self?.engineUp = ok
-        }
+        checkEngine()
         refreshEngineState()
     }
 }
