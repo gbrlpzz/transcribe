@@ -2,27 +2,15 @@ import Foundation
 
 /// Mirrors `transcribe/config.py` so the app and the Python engine share
 /// one configuration file at ~/Library/Application Support/transcribe/config.json.
+/// The engine owns a single model, language mode (auto), and backend; only
+/// these keys remain configurable. Unknown keys from older releases are
+/// ignored by JSONDecoder, so upgrading never breaks.
 struct AppConfig: Codable {
-    var model: String = "turbo"
-    var language: String = "auto"
-    var backend: String = "auto"
-    var device: String = "auto"
-    var sampleRate: Int = 16000
-    var paste: Bool = true
-    var smartText: Bool = true
-    var cleanupTtlHours: Double = 168.0
-    var keepTranscripts: Bool = true
-    var port: Int = 8765
-    var warmOnStart: Bool = true
     var hotkey: String = "ctrl+space"
-    var pasteMode: String = "cmd-v"
-    var launchAtLogin: Bool = false
+    var port: Int = 8765
 
     enum CodingKeys: String, CodingKey {
-        case model, language, backend, device, sampleRate = "sample_rate"
-        case paste, smartText = "smart_text", cleanupTtlHours = "cleanup_ttl_hours"
-        case keepTranscripts = "keep_transcripts", port, warmOnStart = "warm_on_start"
-        case hotkey, pasteMode = "paste_mode", launchAtLogin = "launch_at_login"
+        case hotkey, port
     }
 
     static func load() -> AppConfig {

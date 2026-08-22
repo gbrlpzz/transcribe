@@ -21,7 +21,7 @@ final class EngineClient {
     }
 
     @discardableResult
-    func transcribe(path: URL, language: String, preserveSource: Bool = false,
+    func transcribe(path: URL, preserveSource: Bool = false,
                     completion: @escaping (Result<TranscriptionResult, Error>) -> Void) -> URLSessionDataTask {
         var req = URLRequest(url: baseURL.appendingPathComponent("transcribe"))
         req.httpMethod = "POST"
@@ -29,7 +29,6 @@ final class EngineClient {
         req.timeoutInterval = 300
         let body: [String: Any] = [
             "path": path.path,
-            "language": language,
             "preserve_source": preserveSource,
         ]
         req.httpBody = try? JSONSerialization.data(withJSONObject: body)
@@ -56,8 +55,7 @@ final class EngineClient {
             let result = TranscriptionResult(
                 text: json["text"] as? String ?? "",
                 language: json["language"] as? String ?? "",
-                model: json["model"] as? String ?? "",
-                backend: json["backend"] as? String ?? ""
+                model: json["model"] as? String ?? ""
             )
             DispatchQueue.main.async { completion(.success(result)) }
         }
@@ -102,15 +100,16 @@ final class EngineClient {
                 return
             }
             // wait for the server to come up (model download may take a while
-            // on first run; health answers as soon as the port is open)
+            // on first run; health answers as soon as the port is open).
+            // Poll every 0.25 s so a cold engine feels instant to the user.
             var attempts = 0
             func poll() {
                 attempts += 1
                 self.health { ok in
                     if ok {
                         completion(true)
-                    } else if attempts < 120 {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: poll)
+                    } else if attempts < 240 {  // 60 s ceiling for first-run downloads
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: poll)
                     } else {
                         completion(false)
                     }
@@ -152,5 +151,4 @@ struct TranscriptionResult {
     let text: String
     let language: String
     let model: String
-    let backend: String
 }

@@ -36,13 +36,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // menu handles
     private var setupItem: NSMenuItem!
     private var engineItem: NSMenuItem!
-    private var languageMenu: NSMenu!
     private var enginePollTimer: Timer?
-
-    private let languages: [(id: String, label: String)] = [
-        ("auto", "Auto"), ("en", "English"), ("it", "Italiano"),
-        ("de", "Deutsch"), ("fr", "Français"), ("es", "Español"),
-    ]
 
     // MARK: - Lifecycle
 
@@ -185,21 +179,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(.separator())
 
-        let langItem = NSMenuItem(title: "Language", action: nil, keyEquivalent: "")
-        languageMenu = NSMenu()
-        for l in languages {
-            let item = NSMenuItem(title: l.label, action: #selector(selectLanguage(_:)),
-                                  keyEquivalent: "")
-            item.target = self
-            item.representedObject = l.id
-            item.state = (config.language == l.id) ? .on : .off
-            languageMenu.addItem(item)
-        }
-        langItem.submenu = languageMenu
-        menu.addItem(langItem)
-
-        menu.addItem(.separator())
-
         engineItem = NSMenuItem(title: "Engine: starting…", action: #selector(restartEngine),
                                 keyEquivalent: "")
         engineItem.target = self
@@ -209,10 +188,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                   keyEquivalent: "")
         sessions.target = self
         menu.addItem(sessions)
-        let clean = NSMenuItem(title: "Clean Up Old Recordings", action: #selector(cleanNow),
-                               keyEquivalent: "")
-        clean.target = self
-        menu.addItem(clean)
 
         menu.addItem(.separator())
 
@@ -283,7 +258,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func modelShortName() -> String {
-        "turbo"
+        "turbo-q4"
     }
 
     private func setupHotKey() {
@@ -449,7 +424,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return
             }
             self.engineUp = true
-            self.liveTask = self.engine.transcribe(path: url, language: self.config.language) { [weak self] result in
+            self.liveTask = self.engine.transcribe(path: url) { [weak self] result in
                 guard let self,
                       self.liveRequestID == requestID else { return }
                 self.liveRequestID = nil
@@ -468,15 +443,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     if text.isEmpty {
                         self.showIdleIcon()
                         self.pill.show(.empty)
-                    } else if self.config.paste && AXIsProcessTrusted() {
+                    } else if AXIsProcessTrusted() {
                         Paste.paste(text)
                         Paste.clearIfUnchanged(text)
                         self.flashResult(text)
-                    } else if self.config.paste {
-                        Paste.copyOnly(text)
-                        Paste.clearIfUnchanged(text)
-                        self.flashResult(text)
                     } else {
+                        // Accessibility missing: leave the text on the pasteboard
+                        // so Cmd+V still works manually.
                         Paste.copyOnly(text)
                         Paste.clearIfUnchanged(text)
                         self.flashResult(text)
@@ -529,7 +502,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             self.engineUp = true
             self.fileTask = self.engine.transcribe(path: url,
-                                                    language: self.config.language,
                                                     preserveSource: true) { [weak self] result in
                 self?.finishFile(url: url, requestID: requestID, result: result)
             }
@@ -580,14 +552,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
     }
 
-    @objc private func selectLanguage(_ sender: NSMenuItem) {
-        guard let lang = sender.representedObject as? String else { return }
-        config.language = lang
-        config.save()
-        for item in languageMenu.items { item.state = .off }
-        sender.state = .on
-    }
-
     @objc private func restartEngine() {
         engine.ensureEngineRunning { [weak self] ok in
             self?.engineUp = ok
@@ -624,30 +588,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSWorkspace.shared.open(base)
     }
 
-    @objc private func cleanNow() {
-        // honor the configured TTL by asking the CLI; fall back to find(1)
-        if let binary = EngineClient.resolveEngineBinary() {
-            let proc = Process()
-            proc.executableURL = URL(fileURLWithPath: binary)
-            proc.arguments = ["clean"]
-            try? proc.run()
-            proc.waitUntilExit()
-        } else {
-            let base = FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent("Library/Application Support/transcribe/sessions")
-            let proc = Process()
-            proc.executableURL = URL(fileURLWithPath: "/usr/bin/find")
-            proc.arguments = [base.path, "-type", "f", "-mtime", "+2", "-delete"]
-            try? proc.run()
-        }
-        presentAlert(title: "Cleanup Done",
-                     message: "Recordings and transcripts older than \(Int(config.cleanupTtlHours)) hours were removed.")
-    }
-
     @objc private func showAbout() {
         let alert = NSAlert()
         alert.messageText = "Transcribe"
-        alert.informativeText = "Fully local dictation and transcription.\n\nWhisper runs on this Mac — nothing leaves your machine. Audio and transcripts are wiped automatically after \(Int(config.cleanupTtlHours)) hours. Ships with a Prime Agent skill."
+        alert.informativeText = "Fully local dictation and transcription.\n\nWhisper runs on this Mac — nothing leaves your machine. Audio and transcripts are cleaned up automatically."
         alert.addButton(withTitle: "OK")
         alert.runModal()
     }
