@@ -558,7 +558,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func restartEngine() {
         engine.ensureEngineRunning { [weak self] ok in
             self?.engineUp = ok
-            if ok { self?.engine.reload() }
+            guard ok else { return }
+            self?.reloadEngineRetrying(remaining: 10)
+        }
+    }
+
+    /// /reload is non-blocking: it answers 503 while a job runs. Retry briefly
+    /// instead of discarding the restart; the status row keeps showing the
+    /// (still running) engine either way.
+    private func reloadEngineRetrying(remaining: Int) {
+        engine.reload { [weak self] ok in
+            guard let self, !ok, remaining > 0 else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                self.reloadEngineRetrying(remaining: remaining - 1)
+            }
         }
     }
 

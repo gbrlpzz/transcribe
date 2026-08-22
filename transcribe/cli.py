@@ -30,7 +30,7 @@ from transcribe.config import config_path, load, save
 from transcribe.engine import Transcriber, transcribe
 from transcribe.paste import check_accessibility, paste_text
 from transcribe.smarttext import apply_smart_text, strip_whitespace
-from transcribe.storage import clean, save_result
+from transcribe.storage import clean, save_result, write_transcript_markdown
 
 
 

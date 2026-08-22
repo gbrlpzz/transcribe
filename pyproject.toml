@@ -27,7 +27,7 @@ classifiers = [
 # module): no torch/numba/scipy, ~750 MB less install. See NOTICE.
 dependencies = [
     "mlx==0.32.1",
-    "mlx-whisper-diet @ git+https://github.com/gbrlpzz/mlx-whisper-diet@v0.4.3-diet1",
+    "mlx-whisper-diet @ git+https://github.com/gbrlpzz/mlx-whisper-diet@f18a36a0af3a399cb23aa1cb2f7dfb28e0cf1f32",  # v0.4.3-diet1
 ]
 
 [project.optional-dependencies]
