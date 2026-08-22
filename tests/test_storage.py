@@ -7,7 +7,7 @@ def test_save_and_clean(tmp_path, monkeypatch):
     monkeypatch.setenv("TRANSCRIBE_HOME", str(tmp_path))
     wav = tmp_path / "rec.wav"
     wav.write_bytes(b"RIFFfake")
-    session = storage.save_session(str(wav), "hello world", duration=1.5, model="m", language="en")
+    session = storage.save_session(str(wav), "hello world", model="m", language="en")
     assert os.path.exists(session.recording)
     assert os.path.exists(session.meta_path)
 
@@ -88,3 +88,58 @@ def test_clean_uses_separate_live_and_file_ttls_and_preserves_source(tmp_path, m
     assert str(markdown) in removed
     assert not os.path.exists(markdown)
     assert os.path.exists(source)
+
+
+def test_iter_sessions_tolerates_legacy_meta_keys(tmp_path, monkeypatch):
+    """Pre-0.6 metas carry a "duration" key (always 0.0, field removed in 0.6).
+
+    The loader must keep reading old session JSONs unchanged: unknown keys
+    are ignored and nothing else about the record is disturbed.
+    """
+    import json
+
+    monkeypatch.setenv("TRANSCRIBE_HOME", str(tmp_path))
+    wav = tmp_path / "old.wav"
+    wav.write_bytes(b"x")
+    session = storage.save_session(str(wav), "legacy", model="m", language="en")
+    meta = json.loads(open(session.meta_path).read())
+    meta["duration"] = 1.5  # as written by <= 0.5.x
+    meta["smart_text"] = True  # even older leftovers must be ignored too
+    with open(session.meta_path, "w") as fh:
+        json.dump(meta, fh)
+
+    loaded = list(storage.iter_sessions())
+    assert len(loaded) == 1
+    assert loaded[0].transcript == "legacy"
+    assert loaded[0].model == "m"
+    assert not hasattr(loaded[0], "duration")
+
+
+def test_write_transcript_markdown_format(tmp_path):
+    audio = tmp_path / "meeting notes.m4a"
+    audio.write_bytes(b"x")
+    md = storage.write_transcript_markdown(str(audio), "hello world")
+    assert md == str(tmp_path / "meeting notes.md")
+    assert open(md).read() == "# meeting notes\n\nhello world\n"
+
+
+def test_save_result_persists_meta_and_swallows_oserror(tmp_path, monkeypatch):
+    monkeypatch.setenv("TRANSCRIBE_HOME", str(tmp_path))
+    result = {"text": "raw", "model": "m", "language": "en", "elapsed": 0.5}
+    storage.save_result("final text", result, None,
+                        source="file", keep_transcripts=True,
+                        source_path="/tmp/x.wav", transcript_path="")
+    sessions = list(storage.iter_sessions())
+    assert len(sessions) == 1
+    assert sessions[0].transcript == "final text"
+    # meta fields come from the engine result dict
+    import json
+    meta = json.load(open(sessions[0].meta_path))
+    assert meta["model"] == "m" and meta["language"] == "en"
+    # file jobs fall back to the deterministic sidecar path
+    assert meta["transcript_path"] == "/tmp/x.md"
+
+    def boom(*a, **k):
+        raise OSError("disk full")
+    monkeypatch.setattr(storage, "save_session", boom)
+    storage.save_result("t", result, None, source="live", keep_transcripts=True)

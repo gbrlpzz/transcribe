@@ -7,7 +7,6 @@ import Foundation
 final class HotKey {
     enum Action {
         case pressed
-        case released
     }
 
     var onAction: ((Action) -> Void)?
@@ -41,8 +40,6 @@ final class HotKey {
         var eventType = [
             EventTypeSpec(eventClass: OSType(kEventClassKeyboard),
                           eventKind: UInt32(kEventHotKeyPressed)),
-            EventTypeSpec(eventClass: OSType(kEventClassKeyboard),
-                          eventKind: UInt32(kEventHotKeyReleased)),
         ]
         let selfPtr = Unmanaged.passUnretained(self).toOpaque()
         let handler: EventHandlerUPP = { _, event, userData in
@@ -58,11 +55,11 @@ final class HotKey {
                 return noErr
             }
 
-            let action: Action = GetEventKind(event) == UInt32(kEventHotKeyPressed) ? .pressed : .released
-            hotKey.onAction?(action)
+            guard GetEventKind(event) == UInt32(kEventHotKeyPressed) else { return noErr }
+            hotKey.onAction?(.pressed)
             return noErr
         }
-        InstallEventHandler(GetApplicationEventTarget(), handler, 2, &eventType,
+        InstallEventHandler(GetApplicationEventTarget(), handler, 1, &eventType,
                             selfPtr, &handlerRef)
 
         let status = RegisterEventHotKey(keyCode, modifiers, hotKeyID,

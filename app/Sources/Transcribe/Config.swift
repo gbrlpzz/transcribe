@@ -22,17 +22,6 @@ struct AppConfig: Codable {
         return cfg
     }
 
-    func save() {
-        let url = AppConfig.configURL()
-        try? FileManager.default.createDirectory(
-            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        if let data = try? encoder.encode(self) {
-            try? data.write(to: url, options: .atomic)
-        }
-    }
-
     static func configURL() -> URL {
         let base = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support/transcribe")

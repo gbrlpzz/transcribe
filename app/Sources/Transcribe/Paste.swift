@@ -14,7 +14,12 @@ enum Paste {
         pb.clearContents()
         pb.setString(text, forType: .string)
 
-        // let the pasteboard settle before synthesizing Cmd+V
+        // Empirical settle wait (field-proven since v0.2): although the
+        // pasteboard write itself is synchronous, a synthetic Cmd+V fired in
+        // the same event-loop tick as the dictation hotkey-up races the
+        // frontmost app's input handling - several app families (Electron,
+        // terminals) drop or misorder such events. The wait is not about the
+        // pasteboard; it lets the target app finish processing prior input.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
             postCommandV()
         }

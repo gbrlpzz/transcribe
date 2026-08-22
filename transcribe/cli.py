@@ -30,7 +30,7 @@ from transcribe.config import config_path, load, save
 from transcribe.engine import Transcriber, transcribe
 from transcribe.paste import check_accessibility, paste_text
 from transcribe.smarttext import apply_smart_text, strip_whitespace
-from transcribe.storage import clean, save_session
+from transcribe.storage import clean, save_result, write_transcript_markdown
 
 
 
@@ -126,35 +126,16 @@ def _daemonize() -> bool:
     return True
 
 
-def _write_markdown(audio_path: str, text: str) -> str:
-    """Write the transcript as ``<basename>.md`` next to the audio file."""
-    nl = chr(10)
-    base = os.path.splitext(audio_path)[0]
-    md_path = base + ".md"
-    title = os.path.splitext(os.path.basename(audio_path))[0]
-    with open(md_path, "w", encoding="utf-8") as fh:
-        fh.write(f"# {title}{nl}{nl}{text}{nl}")
-    return md_path
-
-
 def _maybe_keep(args, cfg, wav: str | None, text: str, result: dict,
                 *, source: str = "live", source_path: str = "",
                 transcript_path: str = ""):
     """Persist a session unless --no-keep; always honor per-kind cleanup."""
     if not getattr(args, "no_keep", False):
-        try:
-            save_session(
-                wav, text,
-                duration=result.get("duration", 0.0),
-                model=result.get("model", ""),
-                language=result.get("language", ""),
-                source=source,
-                keep_transcripts=cfg.keep_transcripts,
-                source_path=source_path,
-                transcript_path=transcript_path,
-            )
-        except OSError:
-            pass
+        save_result(text, result, wav,
+                    source=source,
+                    keep_transcripts=cfg.keep_transcripts,
+                    source_path=source_path,
+                    transcript_path=transcript_path)
     elif wav and os.path.exists(wav):
         os.remove(wav)
     clean(live_ttl_hours=cfg.live_cleanup_ttl_hours,
@@ -287,7 +268,7 @@ def cmd_file(args, cfg) -> int:
             continue
 
         text = _smart(result["text"])
-        md_path = _write_markdown(path, text)
+        md_path = write_transcript_markdown(path, text)
         results.append({"path": path, "markdown": md_path, **result, "text": text})
         if not args.json:
             print(f"--- {path} -> {md_path} ---")
@@ -387,7 +368,8 @@ def cmd_doctor(args, cfg) -> int:
     print("System Diagnostics")
     print("──────────────────")
     print(f"Hardware:     {hardware}")
-    print("Model:        turbo-q4 (4-bit whisper-turbo, always warm)")
+    from transcribe.engine import DEFAULT_MODEL_REPO
+    print(f"Model:        {DEFAULT_MODEL_REPO} (4-bit whisper-turbo, always warm)")
     print()
 
     ok = True
@@ -399,7 +381,9 @@ def cmd_doctor(args, cfg) -> int:
 
     from transcribe.audio import ffmpeg_path, find_input_device
     ff = ffmpeg_path()
-    report("ffmpeg", bool(ff), ff or "install with `brew install ffmpeg`")
+    # optional: needed for non-WAV media files and terminal dictation; menu-bar dictation and WAV files never use it
+    print(f"{'✓' if ff else '•'} ffmpeg           "
+          f"{ff or 'optional - needed for non-WAV media files and terminal dictation (brew install ffmpeg)'}")
 
     try:
         import mlx_whisper  # noqa: F401

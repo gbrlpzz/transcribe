@@ -44,5 +44,7 @@ VERSION ?= $(shell /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString
 dist: app ## build the release zip to attach to a GitHub release
 	mkdir -p release
 	rm -f release/Transcribe-$(VERSION).zip
-	ditto -c -k --sequesterRsrc --keepParent app/dist/Transcribe.app release/Transcribe-$(VERSION).zip
+	# --norsrc keeps Finder/metadata AppleDouble entries (__MACOSX/) out of the
+	# zip; codesign signatures live in _CodeSignature + the Mach-O and survive.
+	ditto -c -k --norsrc --keepParent app/dist/Transcribe.app release/Transcribe-$(VERSION).zip
 	@echo "✓ release/Transcribe-$(VERSION).zip — attach this to the GitHub release for tag v$(VERSION)"

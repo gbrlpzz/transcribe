@@ -7,7 +7,7 @@ Transcribe has four local parts:
 3. A command-line interface.
 4. An optional Prime Agent skill.
 
-All communication stays on `127.0.0.1:8765`.
+All communication stays on `127.0.0.1:8765`. The Python engine runs Whisper on MLX through [mlx-whisper-diet](https://github.com/gbrlpzz/mlx-whisper-diet), a slim drop-in fork of upstream mlx-whisper 0.4.3 with the same `mlx_whisper` module interface.
 
 ```text
 Menu-bar app ── POST /transcribe ──▶ Python engine
@@ -35,13 +35,13 @@ CLI and Prime Agent skill ──────────────▶ same eng
 | `HotKey` | `app/Sources/Transcribe/HotKey.swift` | Registers the global tap-to-toggle shortcut through Carbon. |
 | `Paste` | `app/Sources/Transcribe/Paste.swift` | Copies text and sends `⌘V` through macOS Accessibility. |
 | `Engine` | `transcribe/engine.py` | Loads the single 4-bit turbo model on MLX and keeps it warm; detects language per utterance with whisper-tiny. |
-| `Server` | `transcribe/server.py` | Exposes `/health`, `/transcribe`, and `/reload`. Runs warm-up and inference on one dedicated engine thread. |
+| `Server` | `transcribe/server.py` | Exposes `/health`, `/transcribe`, and `/reload`. One primary engine thread caps requests at 30 minutes and recycles the model every 40 jobs; a lazily created overflow lane keeps dictation alive during long file jobs and evicts itself after idling. |
 | `Storage` | `transcribe/storage.py` | Stores sessions and removes expired data. |
 | `CLI` | `transcribe/cli.py` | Provides dictation, file jobs, engine control (`start`/`stop`/`restart`), cleanup, configuration, and diagnostics. |
 
 ## Inference and concurrency
 
-The engine keeps one model warm. MLX GPU streams are thread-local, so warm-up and inference run on the same dedicated thread.
+The engine keeps one model warm. MLX GPU streams are thread-local, so warm-up and inference run on the same dedicated thread. After every 40 transcriptions the server quietly rebuilds the warm model in the background (a fraction of a second while idle): long-lived MLX sessions slowly degrade output quality, and the rebuild bounds that. When a dictation arrives while a file job holds the engine, a second overflow lane (own model copy, own worker thread) serves the utterance; it evicts after ~10 idle minutes so steady-state memory stays single-model.
 
 The app keeps live and file state separate:
 
@@ -70,4 +70,4 @@ Swift and Python share this file:
 ~/Library/Application Support/transcribe/config.json
 ```
 
-The release uses one warm `turbo-q4` model with automatic language detection. Configurable values are the hotkey, the local port, a one-hour live cleanup TTL, and a seven-day file transcript TTL.
+The release uses one warm 4-bit whisper-large-v3-turbo model (`mlx-community/whisper-large-v3-turbo-4bit`) with automatic language detection. Configurable values are the hotkey, the local port, a one-hour live cleanup TTL, and a seven-day file transcript TTL.

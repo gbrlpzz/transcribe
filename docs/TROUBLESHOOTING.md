@@ -8,7 +8,8 @@ Run:
 transcribe doctor
 ```
 
-The command checks `ffmpeg`, `mlx-whisper`, the microphone, Accessibility permissions, stale sessions, and whether the engine is running.
+The command checks the engine, `mlx-whisper`, the microphone, Accessibility permissions, stale sessions, and `ffmpeg` availability.
+`ffmpeg` is needed for media files that are not WAV/PCM and for dictating from the terminal; menu-bar-app dictation and WAV files work without it.
 
 ## The engine is offline
 
@@ -21,9 +22,17 @@ transcribe restart  # stop + start, use after any hiccup
 
 You can also click **Engine: not running — Start** in the menu-bar app, or run it in the foreground with `transcribe serve`. The server listens only on `127.0.0.1:8765`.
 
+### Engine busy and request timeouts
+
+File transcription runs one job at a time; dictating while a file job runs works - the engine serves your utterance from a second model lane that appears only while needed and disappears after ~10 idle minutes. A second file job during a running one is rejected immediately with HTTP 503 `engine busy` - retry when it finishes; nothing is queued. The same immediate 503 applies to engine reloads triggered while a job runs (the menu-bar **Check for Updates…** flow retries automatically).
+
+The engine also rebuilds its warm model in the background every 40 transcriptions (a fraction of a second while idle). This keeps long dictation sessions accurate - MLX sessions slowly degrade output quality after many jobs in one process.
+
+A single request is hard-capped at 30 minutes server-side (`REQUEST_TIMEOUT_S`). If the cap fires, the client gets an HTTP 500, the engine unlocks itself, and later requests work normally; if transcription ever wedges persistently, `transcribe restart` clears it.
+
 ## The first request is slow
 
-The first run downloads the model weights: about 450 MB for `turbo-q4` plus about 80 MB for the language-detection helper. This happens once; later requests use the local cache.
+The first run downloads the model weights: about 450 MB for `turbo-q4` plus about 71 MB for the language-detection helper (roughly 520 MB total). This happens once; later requests use the local cache.
 
 Check the model cache:
 
@@ -55,7 +64,7 @@ Reinstall it:
 make quick-action-install
 ```
 
-Then open Finder, select a file, and choose **Quick Actions → Transcribe**. The service accepts all files. Transcription succeeds when the local `ffmpeg` build can find and decode an audio stream.
+Then open Finder, select a file, and choose **Quick Actions → Transcribe**. The service accepts all files. WAV files transcribe without extra tools; any other container needs a local `ffmpeg` build that can find and decode its audio stream.
 
 ## The source file disappeared
 

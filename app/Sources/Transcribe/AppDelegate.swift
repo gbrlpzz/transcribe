@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var fileHUDVisible = false
     private var engine: EngineClient!
     private var config = AppConfig.load()
+    private var currentModelName: String?
 
     // Live dictation and file jobs are independent. The engine serializes
     // inference, but recording and file work can overlap without replacing
@@ -29,7 +30,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var pendingFileStatuses: [DictationPill.PillState] = []
     private var appReady = false
     private var queuedOpenURLs: [URL] = []
-    private var levelTimer: Timer?
     private var globalEscapeMonitor: Any?
     private var localEscapeMonitor: Any?
 
@@ -48,8 +48,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         engine.ensureEngineRunning { [weak self] ok in
             self?.refreshEngineState()
         }
-        enginePollTimer = Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { [weak self] _ in
-            self?.engine.health { ok in self?.engineUp = ok }
+        // Menu open and every transcribe re-check health anyway; this slow poll
+        // only keeps the menu label fresh while the menu is closed.
+        enginePollTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+            self?.checkEngine()
         }
         appReady = true
         let urls = queuedOpenURLs
@@ -59,11 +61,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func setupPill() {
+        // One animation clock: the waveform's own 60 Hz tick reads the recorder
+        // meter directly (no separate level timer).
+        pill.levelProvider = { [weak self] in self?.recorder.level() ?? 0 }
         pill.onCancel = { [weak self] _ in
             self?.cancelDictation()
         }
         pill.onHidden = { [weak self] in
-            self?.refreshLivePill()
+            self?.refreshHUD()
         }
         filePill.onCancel = { [weak self] _ in
             self?.cancelFileTranscription()
@@ -211,27 +216,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func showRecording() {
         statusItem.button?.image = Self.templateImage("mic")
         statusItem.button?.contentTintColor = .systemRed
-        refreshLivePill()
-        levelTimer?.invalidate()
-        let t = Timer(timeInterval: 0.033, repeats: true) { [weak self] _ in
-            self?.pill.updateLevel(self?.recorder.level() ?? 0)
-        }
-        RunLoop.main.add(t, forMode: .common)
-        levelTimer = t
+        refreshHUD()
     }
 
     private func showTranscribing() {
-        levelTimer?.invalidate()
-        levelTimer = nil
         statusItem.button?.contentTintColor = fileHUDVisible ? .systemOrange : nil
-        refreshLivePill()
+        refreshHUD()
     }
 
-    private func flashResult(_ text: String) {
+    private func flashResult() {
         statusItem.button?.contentTintColor = fileHUDVisible ? .systemOrange : nil
         pill.setPresentation(compact: fileHUDVisible,
                              horizontalOffset: fileHUDVisible ? -18 : 0)
-        pill.show(.result(text))
+        pill.show(.success)
     }
 
     // MARK: - Setup & state rows
@@ -246,7 +243,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.setupItem.isHidden = true
             }
             if self.engineUp {
-                self.engineItem.title = "Engine: running — \(self.modelShortName())"
+                let suffix = self.modelShortName().map { " — \($0)" } ?? ""
+                self.engineItem.title = "Engine: running\(suffix)"
                 self.engineItem.action = #selector(self.restartEngine)
             } else {
                 self.engineItem.title = "Engine: not running — Start"
@@ -255,8 +253,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func modelShortName() -> String {
-        "turbo-q4"
+    /// Short model label derived from the engine's own /health report, so the
+    /// menu can never drift from the model actually loaded.
+    private func modelShortName() -> String? {
+        guard let name = currentModelName else { return nil }
+        let short = name.split(separator: "/").last.map(String.init) ?? name
+        return short.hasPrefix("whisper-") ? String(short.dropFirst("whisper-".count)) : short
+    }
+
+    private func checkEngine() {
+        engine.health { [weak self] up, model in
+            guard let self else { return }
+            if let model { self.currentModelName = model }
+            self.engineUp = up
+        }
     }
 
     private func setupHotKey() {
@@ -265,13 +275,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         let hk = HotKey()
-        hk.onAction = { [weak self] action in
+        hk.onAction = { [weak self] _ in
             // Tap-to-toggle: first tap starts recording, second tap stops and
             // transcribes. No press-and-hold, no accidental releases.
-            switch action {
-            case .pressed: self?.toggleDictation()
-            case .released: break
-            }
+            self?.toggleDictation()
         }
         if !hk.register(modifiers: parsed.modifiers, keyCode: parsed.keyCode) {
             presentAlert(title: "Hotkey Not Available",
@@ -290,14 +297,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     // MARK: - Dictation
-
-    private func refreshPill() {
-        refreshHUD()
-    }
-
-    private func refreshLivePill() {
-        refreshHUD()
-    }
 
     /// Keep the two panels as one centered notch cluster. A file is a large
     /// pill by itself. Once live dictation joins, the live pill becomes medium
@@ -319,7 +318,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                  circle: concurrent,
                                  horizontalOffset: concurrent ? 63 : 0)
         if let file = activeFileURL {
-            filePill.show(.fileTranscribing(file.lastPathComponent))
+            filePill.show(.transcribing(fileName: file.lastPathComponent))
         } else if let status = pendingFileStatuses.first {
             pendingFileStatuses.removeFirst()
             filePill.show(status)
@@ -333,7 +332,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .recording:
             pill.show(.recording)
         case .transcribing:
-            pill.show(.transcribing)
+            pill.show(.transcribing(fileName: nil))
         case .idle:
             pill.show(.hidden)
         }
@@ -370,7 +369,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             liveState = .idle
             stopEscapeMonitoring()
             showIdleIcon()
-            refreshPill()
+            refreshHUD()
             presentAlert(title: "Can't Record", message: error.localizedDescription)
         }
     }
@@ -391,8 +390,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         liveRequestID = nil
         liveTask?.cancel()
         liveTask = nil
-        levelTimer?.invalidate()
-        levelTimer = nil
         stopEscapeMonitoring()
 
         if let url = recorder.currentURL {
@@ -432,7 +429,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
                 if self.liveCancelled {
                     try? FileManager.default.removeItem(at: url)
-                    self.refreshPill()
+                    self.refreshHUD()
                     return
                 }
                 switch result {
@@ -444,13 +441,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     } else if AXIsProcessTrusted() {
                         Paste.paste(text)
                         Paste.clearIfUnchanged(text)
-                        self.flashResult(text)
+                        self.flashResult()
                     } else {
                         // Accessibility missing: leave the text on the pasteboard
                         // so Cmd+V still works manually.
                         Paste.copyOnly(text)
                         Paste.clearIfUnchanged(text)
-                        self.flashResult(text)
+                        self.flashResult()
                     }
                 case .failure(let error):
                     self.showIdleIcon()
@@ -466,7 +463,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func enqueueFile(_ url: URL) {
         guard url.isFileURL, FileManager.default.fileExists(atPath: url.path) else {
             pendingFileStatuses.append(.error("File not found"))
-            refreshPill()
+            refreshHUD()
             return
         }
         fileQueue.append(url)
@@ -475,18 +472,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func startNextFileIfNeeded() {
         guard activeFileURL == nil else {
-            refreshPill()
+            refreshHUD()
             return
         }
         guard let url = fileQueue.first else {
-            refreshPill()
+            refreshHUD()
             return
         }
         fileQueue.removeFirst()
         activeFileURL = url
         let requestID = UUID()
         fileRequestID = requestID
-        refreshPill()
+        refreshHUD()
 
         engine.ensureEngineRunning { [weak self] ok in
             guard let self,
@@ -532,7 +529,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         return
                     }
                 }
-                pendingFileStatuses.append(.fileResult(url.lastPathComponent))
+                pendingFileStatuses.append(.fileSuccess)
             }
         case .failure:
             pendingFileStatuses.append(.error("File failed"))
@@ -561,7 +558,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func restartEngine() {
         engine.ensureEngineRunning { [weak self] ok in
             self?.engineUp = ok
-            if ok { self?.engine.reload() }
+            guard ok else { return }
+            self?.reloadEngineRetrying(remaining: 10)
+        }
+    }
+
+    /// /reload is non-blocking: it answers 503 while a job runs. Retry briefly
+    /// instead of discarding the restart; the status row keeps showing the
+    /// (still running) engine either way.
+    private func reloadEngineRetrying(remaining: Int) {
+        engine.reload { [weak self] ok in
+            guard let self, !ok, remaining > 0 else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                self.reloadEngineRetrying(remaining: remaining - 1)
+            }
         }
     }
 
@@ -632,9 +642,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 extension AppDelegate: NSMenuDelegate {
     func menuWillOpen(_ menu: NSMenu) {
-        engine.health { [weak self] ok in
-            self?.engineUp = ok
-        }
+        checkEngine()
         refreshEngineState()
     }
 }

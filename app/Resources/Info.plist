@@ -2,39 +2,39 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleDevelopmentRegion</key>
-    <string>en</string>
-    <key>CFBundleExecutable</key>
-    <string>Transcribe</string>
-    <key>CFBundleIdentifier</key>
-    <string>com.gbrlpzz.transcribe</string>
-    <key>CFBundleIconFile</key>
-    <string>AppIcon</string>
-    <key>CFBundleIconName</key>
-    <string>AppIcon</string>
-    <key>CFBundleInfoDictionaryVersion</key>
-    <string>6.0</string>
-    <key>CFBundleName</key>
-    <string>Transcribe</string>
-    <key>CFBundleDisplayName</key>
-    <string>Transcribe</string>
-    <key>CFBundlePackageType</key>
-    <string>APPL</string>
-    <key>CFBundleShortVersionString</key>
-    <string>0.5.0</string>
-    <key>CFBundleVersion</key>
-    <string>6</string>
-    <key>LSMinimumSystemVersion</key>
-    <string>14.0</string>
-    <key>LSUIElement</key>
-    <true/>
-    <key>NSHighResolutionCapable</key>
-    <true/>
-    <key>NSMicrophoneUsageDescription</key>
-    <string>Transcribe records your voice so it can transcribe it locally. Audio never leaves your Mac.</string>
-    <key>NSAccessibilityUsageDescription</key>
-    <string>Transcribe needs Accessibility so it can paste transcribed text into the app you are using.</string>
-    <key>NSAppleEventsUsageDescription</key>
-    <string>Transcribe uses keyboard events to paste transcribed text into the focused app.</string>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleDisplayName</key>
+	<string>Transcribe</string>
+	<key>CFBundleExecutable</key>
+	<string>Transcribe</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>CFBundleIconName</key>
+	<string>AppIcon</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.gbrlpzz.transcribe</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>Transcribe</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.6.0</string>
+	<key>CFBundleVersion</key>
+	<string>7</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.0</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSAccessibilityUsageDescription</key>
+	<string>Transcribe needs Accessibility so it can paste transcribed text into the app you are using.</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Transcribe uses keyboard events to paste transcribed text into the focused app.</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Transcribe records your voice so it can transcribe it locally. Audio never leaves your Mac.</string>
 </dict>
 </plist>

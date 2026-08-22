@@ -8,20 +8,43 @@ import QuartzCore
 /// - Interactive Tap-to-Cancel: click or tap the HUD to discard dictation immediately.
 /// - Calmed monochrome glass: dark vibrant backdrop, obsidian core, and specular hairline rim.
 /// - Notch-aware positioning: dead-centered under the hardware notch or menu bar.
-/// - 60 FPS live waveform: multi-band sound-reactive capsule bars with peak attack/decay ballistics
-///   and subtle organic idle ripple when silent.
+/// - Live waveform: multi-band sound-reactive capsule bars with fast attack /
+///   smooth decay ballistics that rest flat whenever the input is silent.
 /// - Crisp typography: SF Pro Medium text paired with semantic SF Symbols.
 final class DictationPill: NSPanel {
     enum PillState: Equatable {
+        /// Live waveform with pulsing beacon.
         case recording
-        case transcribing
-        case fileTranscribing(String)
-        case result(String)
-        case fileResult(String)
-        case empty
-        case error(String)
+        /// Spinner; carries a file name when transcribing a dropped file.
+        case transcribing(fileName: String?)
+        /// Transient status flash that auto-dismisses.
+        case flash(Flash)
+        /// User-initiated cancel: quick upward glide into the notch aperture.
         case cancelled
+        /// Fully hidden.
         case hidden
+
+        struct Flash: Equatable {
+            enum Kind {
+                case success       // dictation transcribed
+                case fileSuccess   // file job finished
+                case empty         // nothing heard
+                case failure       // error with message
+            }
+
+            let kind: Kind
+            let message: String
+        }
+
+        // Convenience constructors preserving the historical call-site
+        // vocabulary. The old result/fileResult payloads were never read by
+        // show() and are gone.
+        static var success: PillState { .flash(Flash(kind: .success, message: "")) }
+        static var fileSuccess: PillState { .flash(Flash(kind: .fileSuccess, message: "")) }
+        static var empty: PillState { .flash(Flash(kind: .empty, message: "")) }
+        static func error(_ message: String) -> PillState {
+            .flash(Flash(kind: .failure, message: message))
+        }
     }
 
     private static let pillHeight: CGFloat = 34
@@ -61,9 +84,7 @@ final class DictationPill: NSPanel {
     private let statusIcon = NSImageView()
     private let statusLabel = NSTextField(labelWithString: "")
 
-    init(compact: Bool = false, circle: Bool = false) {
-        compactMode = compact
-        circleMode = circle
+    init() {
         let initialWidth: CGFloat = 140 + (Self.shadowPadding * 2)
         let initialHeight = Self.pillHeight + (Self.shadowPadding * 2)
         super.init(contentRect: NSRect(x: 0, y: 0, width: initialWidth, height: initialHeight),
@@ -97,6 +118,33 @@ final class DictationPill: NSPanel {
 
     // MARK: - View Configuration
 
+    /// Pin all four edges of `view` to `anchor`.
+    private func pinEdges(_ view: NSView, to anchor: NSView) {
+        NSLayoutConstraint.activate([
+            view.leadingAnchor.constraint(equalTo: anchor.leadingAnchor),
+            view.trailingAnchor.constraint(equalTo: anchor.trailingAnchor),
+            view.topAnchor.constraint(equalTo: anchor.topAnchor),
+            view.bottomAnchor.constraint(equalTo: anchor.bottomAnchor),
+        ])
+    }
+
+    /// Shared horizontal stack setup for the three state containers.
+    private func configureStack(_ stack: NSStackView, spacing: CGFloat, alpha: CGFloat = 1) {
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.wantsLayer = true
+        stack.orientation = .horizontal
+        stack.alignment = .centerY
+        stack.spacing = spacing
+        stack.edgeInsets = NSEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
+        stack.alphaValue = alpha
+        container.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            stack.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            stack.heightAnchor.constraint(equalToConstant: Self.pillHeight),
+        ])
+    }
+
     private func configureUI() {
         guard let root = contentView else { return }
 
@@ -112,10 +160,11 @@ final class DictationPill: NSPanel {
         container.layer?.shadowOffset = CGSize(width: 0, height: -4)
         container.onPillClick = { [weak self] in
             guard let self else { return }
-            if self.currentState == .recording || self.currentState == .transcribing {
+            switch self.currentState {
+            case .recording, .transcribing:
                 self.onCancel?(self.currentState)
-            } else if case .fileTranscribing(_) = self.currentState {
-                self.onCancel?(self.currentState)
+            case .flash, .cancelled, .hidden:
+                break
             }
         }
         if let root = root as? PillRootView {
@@ -146,12 +195,7 @@ final class DictationPill: NSPanel {
         visualEffect.layer?.masksToBounds = true
         container.addSubview(visualEffect)
 
-        NSLayoutConstraint.activate([
-            visualEffect.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            visualEffect.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            visualEffect.topAnchor.constraint(equalTo: container.topAnchor),
-            visualEffect.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-        ])
+        pinEdges(visualEffect, to: container)
 
         // 2. Obsidian Core Overlay (pitch-black calm contrast over blur)
         darkOverlay.translatesAutoresizingMaskIntoConstraints = false
@@ -159,12 +203,7 @@ final class DictationPill: NSPanel {
         darkOverlay.layer?.backgroundColor = NSColor(red: 0.04, green: 0.04, blue: 0.06, alpha: 0.90).cgColor
         visualEffect.addSubview(darkOverlay)
 
-        NSLayoutConstraint.activate([
-            darkOverlay.leadingAnchor.constraint(equalTo: visualEffect.leadingAnchor),
-            darkOverlay.trailingAnchor.constraint(equalTo: visualEffect.trailingAnchor),
-            darkOverlay.topAnchor.constraint(equalTo: visualEffect.topAnchor),
-            darkOverlay.bottomAnchor.constraint(equalTo: visualEffect.bottomAnchor),
-        ])
+        pinEdges(darkOverlay, to: visualEffect)
 
         // 3. Specular Hairline Rim Border
         specularBorder.borderColor = NSColor(white: 1.0, alpha: 0.15).cgColor
@@ -195,14 +234,7 @@ final class DictationPill: NSPanel {
     }
 
     private func configureRecordingStack() {
-        recordingStack.translatesAutoresizingMaskIntoConstraints = false
-        recordingStack.wantsLayer = true
-        recordingStack.orientation = .horizontal
-        recordingStack.alignment = .centerY
-        recordingStack.spacing = 10
-        recordingStack.edgeInsets = NSEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
-        container.addSubview(recordingStack)
-
+        configureStack(recordingStack, spacing: 10)
         recordingDot.translatesAutoresizingMaskIntoConstraints = false
         waveform.translatesAutoresizingMaskIntoConstraints = false
 
@@ -211,10 +243,6 @@ final class DictationPill: NSPanel {
         waveformWidthConstraint = waveform.widthAnchor.constraint(equalToConstant: 82)
 
         NSLayoutConstraint.activate([
-            recordingStack.centerXAnchor.constraint(equalTo: container.centerXAnchor),
-            recordingStack.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-            recordingStack.heightAnchor.constraint(equalToConstant: Self.pillHeight),
-
             recordingDot.widthAnchor.constraint(equalToConstant: 8),
             recordingDot.heightAnchor.constraint(equalToConstant: 8),
 
@@ -224,68 +252,44 @@ final class DictationPill: NSPanel {
     }
 
     private func configureTranscribingStack() {
-        transcribingStack.translatesAutoresizingMaskIntoConstraints = false
-        transcribingStack.wantsLayer = true
-        transcribingStack.orientation = .horizontal
-        transcribingStack.alignment = .centerY
-        transcribingStack.spacing = 8
-        transcribingStack.edgeInsets = NSEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
-        transcribingStack.alphaValue = 0
-        container.addSubview(transcribingStack)
-
+        configureStack(transcribingStack, spacing: 8, alpha: 0)
         activityIndicator.translatesAutoresizingMaskIntoConstraints = false
         activityIndicator.style = .spinning
         activityIndicator.controlSize = .small
         activityIndicator.isIndeterminate = true
         activityIndicator.isDisplayedWhenStopped = false
         activityIndicator.appearance = NSAppearance(named: .vibrantDark)
-        transcribingLabel.translatesAutoresizingMaskIntoConstraints = false
-        transcribingLabel.font = .systemFont(ofSize: 11, weight: .medium)
-        transcribingLabel.textColor = NSColor(white: 0.90, alpha: 1.0)
-        transcribingLabel.alignment = .left
+        styleStatusLabel(transcribingLabel, textColor: NSColor(white: 0.90, alpha: 1.0))
 
         transcribingStack.addArrangedSubview(activityIndicator)
         transcribingStack.addArrangedSubview(transcribingLabel)
 
         NSLayoutConstraint.activate([
-            transcribingStack.centerXAnchor.constraint(equalTo: container.centerXAnchor),
-            transcribingStack.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-            transcribingStack.heightAnchor.constraint(equalToConstant: Self.pillHeight),
-
             activityIndicator.widthAnchor.constraint(equalToConstant: 16),
             activityIndicator.heightAnchor.constraint(equalToConstant: 16),
         ])
     }
 
     private func configureStatusStack() {
-        statusStack.translatesAutoresizingMaskIntoConstraints = false
-        statusStack.wantsLayer = true
-        statusStack.orientation = .horizontal
-        statusStack.alignment = .centerY
-        statusStack.spacing = 6
-        statusStack.edgeInsets = NSEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
-        statusStack.alphaValue = 0
-        container.addSubview(statusStack)
-
+        configureStack(statusStack, spacing: 6, alpha: 0)
         statusIcon.translatesAutoresizingMaskIntoConstraints = false
         statusIcon.imageScaling = .scaleProportionallyDown
-
-        statusLabel.translatesAutoresizingMaskIntoConstraints = false
-        statusLabel.font = .systemFont(ofSize: 11, weight: .medium)
-        statusLabel.textColor = .white
-        statusLabel.alignment = .left
+        styleStatusLabel(statusLabel, textColor: .white)
 
         statusStack.addArrangedSubview(statusIcon)
         statusStack.addArrangedSubview(statusLabel)
 
         NSLayoutConstraint.activate([
-            statusStack.centerXAnchor.constraint(equalTo: container.centerXAnchor),
-            statusStack.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-            statusStack.heightAnchor.constraint(equalToConstant: Self.pillHeight),
-
             statusIcon.widthAnchor.constraint(equalToConstant: 14),
             statusIcon.heightAnchor.constraint(equalToConstant: 14),
         ])
+    }
+
+    private func styleStatusLabel(_ label: NSTextField, textColor: NSColor) {
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.font = .systemFont(ofSize: 11, weight: .medium)
+        label.textColor = textColor
+        label.alignment = .left
     }
 
     // MARK: - Geometry & Notch Placement
@@ -327,6 +331,59 @@ final class DictationPill: NSPanel {
 
     // MARK: - State Management & Liquid Transitions
 
+    /// One row of the per-state configuration table. Everything show() does is
+    /// a pure function of this struct plus the compact/circle presentation
+    /// flags, so every state stays visually consistent by construction.
+    private struct StateConfig {
+        enum ActiveStack { case recording, transcribing, status }
+
+        let stack: ActiveStack
+        /// SF Symbol + tint for the status stack (nil for non-status states).
+        let icon: (name: String, tint: NSColor)?
+        let label: String
+        let tooltip: String?
+        /// Non-nil flashes auto-dismiss after this delay.
+        let autoDismissAfter: TimeInterval?
+        /// Live-dictation vocabulary: honor compactMode for insets and medium
+        /// width. File jobs always render full-size insets and width.
+        let liveSizing: Bool
+    }
+
+    private func config(for state: PillState) -> StateConfig? {
+        switch state {
+        case .recording:
+            return StateConfig(stack: .recording, icon: nil, label: "",
+                               tooltip: "Click to cancel dictation (or press Esc)",
+                               autoDismissAfter: nil, liveSizing: true)
+        case .transcribing(let fileName):
+            return StateConfig(stack: .transcribing, icon: nil,
+                               label: "Transcribing…",
+                               tooltip: fileName.map { "Click to cancel file transcription: \($0)" }
+                                   ?? "Click to cancel transcription (or press Esc)",
+                               autoDismissAfter: nil, liveSizing: fileName == nil)
+        case .flash(let flash):
+            let icon: (name: String, tint: NSColor)
+            let label: String
+            switch flash.kind {
+            case .success:
+                icon = ("checkmark.circle.fill", .systemGreen); label = "Transcribed"
+            case .fileSuccess:
+                icon = ("checkmark.circle.fill", .systemGreen); label = "File transcribed"
+            case .empty:
+                icon = ("mic.slash.fill", NSColor(white: 0.65, alpha: 1.0)); label = "Nothing Heard"
+            case .failure:
+                icon = ("exclamationmark.circle.fill", .systemOrange)
+                label = flash.message.isEmpty ? "Failed" : flash.message
+            }
+            let delay: TimeInterval? = [.success: 1.6, .fileSuccess: 1.6,
+                                        .empty: 1.5, .failure: 2.0][flash.kind]
+            return StateConfig(stack: .status, icon: icon, label: label, tooltip: nil,
+                               autoDismissAfter: delay, liveSizing: flash.kind != .fileSuccess)
+        case .cancelled, .hidden:
+            return nil
+        }
+    }
+
     func show(_ state: PillState) {
         DispatchQueue.main.async { [self] in
             guard !(state == .hidden && currentState == .hidden && alphaValue == 0) else { return }
@@ -336,186 +393,76 @@ final class DictationPill: NSPanel {
             let previousState = currentState
             currentState = state
 
-            switch state {
-            case .recording:
-                container.toolTip = "Click to cancel dictation (or press Esc)"
-                recordingStack.edgeInsets = compactMode
-                    ? NSEdgeInsets(top: 0, left: 12, bottom: 0, right: 12)
-                    : NSEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
-                waveformWidthConstraint.constant = compactMode ? 64 : 82
-                transcribingLabel.isHidden = false
-                transcribingStack.edgeInsets = compactMode
-                    ? NSEdgeInsets(top: 0, left: 12, bottom: 0, right: 12)
-                    : NSEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
-                statusLabel.isHidden = circleMode
-                statusStack.edgeInsets = circleMode
-                    ? NSEdgeInsets()
-                    : (compactMode
-                        ? NSEdgeInsets(top: 0, left: 12, bottom: 0, right: 12)
-                        : NSEdgeInsets(top: 0, left: 16, bottom: 0, right: 16))
-                recordingDot.startPulsing()
-                waveform.start()
-                stopActivity()
-                let width = circleMode ? Self.pillHeight
-                    : (compactMode ? Self.mediumWidth : max(Self.minWidth, recordingStack.fittingSize.width + 4))
-                transition(toWidth: width,
-                           activeView: recordingStack,
-                           inactiveViews: [transcribingStack, statusStack],
-                           isNewAppearance: previousState == .hidden)
-
-            case .transcribing:
-                transcribingLabel.stringValue = "Transcribing…"
-                transcribingLabel.isHidden = circleMode
-                transcribingStack.edgeInsets = circleMode
-                    ? NSEdgeInsets()
-                    : (compactMode
-                        ? NSEdgeInsets(top: 0, left: 12, bottom: 0, right: 12)
-                        : NSEdgeInsets(top: 0, left: 16, bottom: 0, right: 16))
-                statusLabel.isHidden = circleMode
-                statusStack.edgeInsets = circleMode
-                    ? NSEdgeInsets()
-                    : (compactMode
-                        ? NSEdgeInsets(top: 0, left: 12, bottom: 0, right: 12)
-                        : NSEdgeInsets(top: 0, left: 16, bottom: 0, right: 16))
-                container.toolTip = "Click to cancel transcription (or press Esc)"
-                recordingDot.stopPulsing()
-                waveform.stop()
-                startActivity()
-                let width = circleMode ? Self.pillHeight
-                    : (compactMode ? Self.mediumWidth : max(Self.minWidth, transcribingStack.fittingSize.width + 4))
-                transition(toWidth: width,
-                           activeView: transcribingStack,
-                           inactiveViews: [recordingStack, statusStack],
-                           isNewAppearance: previousState == .hidden)
-
-            case .fileTranscribing(let fileName):
-                transcribingLabel.stringValue = "Transcribing…"
-                transcribingLabel.isHidden = circleMode
-                transcribingStack.edgeInsets = circleMode
-                    ? NSEdgeInsets()
-                    : NSEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
-                statusLabel.isHidden = circleMode
-                statusStack.edgeInsets = circleMode
-                    ? NSEdgeInsets()
-                    : NSEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
-                container.toolTip = "Click to cancel file transcription: \(fileName)"
-                recordingDot.stopPulsing()
-                waveform.stop()
-                startActivity()
-                let width = circleMode ? Self.pillHeight
-                    : max(Self.minWidth, transcribingStack.fittingSize.width + 4)
-                transition(toWidth: width,
-                           activeView: transcribingStack,
-                           inactiveViews: [recordingStack, statusStack],
-                           isNewAppearance: previousState == .hidden)
-
-            case .result:
-                container.toolTip = nil
-                statusLabel.isHidden = circleMode
-                statusStack.edgeInsets = circleMode
-                    ? NSEdgeInsets()
-                    : (compactMode
-                        ? NSEdgeInsets(top: 0, left: 12, bottom: 0, right: 12)
-                        : NSEdgeInsets(top: 0, left: 16, bottom: 0, right: 16))
-                transcribingLabel.isHidden = circleMode
-                transcribingStack.edgeInsets = circleMode
-                    ? NSEdgeInsets()
-                    : (compactMode
-                        ? NSEdgeInsets(top: 0, left: 12, bottom: 0, right: 12)
-                        : NSEdgeInsets(top: 0, left: 16, bottom: 0, right: 16))
-                recordingDot.stopPulsing()
-                waveform.stop()
-                stopActivity()
-                statusIcon.image = Self.symbol("checkmark.circle.fill", tint: .systemGreen)
-                statusLabel.stringValue = "Transcribed"
-                let width = circleMode ? Self.pillHeight
-                    : (compactMode ? Self.mediumWidth : max(Self.minWidth, statusStack.fittingSize.width + 4))
-                transition(toWidth: width,
-                           activeView: statusStack,
-                           inactiveViews: [recordingStack, transcribingStack],
-                           isNewAppearance: previousState == .hidden)
-                scheduleDismiss(after: 1.6)
-
-            case .fileResult:
-                container.toolTip = nil
-                statusLabel.isHidden = circleMode
-                statusStack.edgeInsets = circleMode
-                    ? NSEdgeInsets()
-                    : NSEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
-                recordingDot.stopPulsing()
-                waveform.stop()
-                stopActivity()
-                statusIcon.image = Self.symbol("checkmark.circle.fill", tint: .systemGreen)
-                statusLabel.stringValue = "File transcribed"
-                let width = circleMode ? Self.pillHeight
-                    : max(Self.minWidth, statusStack.fittingSize.width + 4)
-                transition(toWidth: width,
-                           activeView: statusStack,
-                           inactiveViews: [recordingStack, transcribingStack],
-                           isNewAppearance: previousState == .hidden)
-                scheduleDismiss(after: 1.6)
-
-            case .empty:
-                container.toolTip = nil
-                statusLabel.isHidden = circleMode
-                statusStack.edgeInsets = circleMode
-                    ? NSEdgeInsets()
-                    : (compactMode
-                        ? NSEdgeInsets(top: 0, left: 12, bottom: 0, right: 12)
-                        : NSEdgeInsets(top: 0, left: 16, bottom: 0, right: 16))
-                recordingDot.stopPulsing()
-                waveform.stop()
-                stopActivity()
-                statusIcon.image = Self.symbol("mic.slash.fill", tint: NSColor(white: 0.65, alpha: 1.0))
-                statusLabel.stringValue = "Nothing Heard"
-                let width = circleMode ? Self.pillHeight
-                    : (compactMode ? Self.mediumWidth : max(Self.minWidth, statusStack.fittingSize.width + 4))
-                transition(toWidth: width,
-                           activeView: statusStack,
-                           inactiveViews: [recordingStack, transcribingStack],
-                           isNewAppearance: previousState == .hidden)
-                scheduleDismiss(after: 1.5)
-
-            case .error(let msg):
-                container.toolTip = nil
-                statusLabel.isHidden = circleMode
-                statusStack.edgeInsets = circleMode
-                    ? NSEdgeInsets()
-                    : (compactMode
-                        ? NSEdgeInsets(top: 0, left: 12, bottom: 0, right: 12)
-                        : NSEdgeInsets(top: 0, left: 16, bottom: 0, right: 16))
-                recordingDot.stopPulsing()
-                waveform.stop()
-                stopActivity()
-                statusIcon.image = Self.symbol("exclamationmark.circle.fill", tint: .systemOrange)
-                statusLabel.stringValue = msg.isEmpty ? "Failed" : msg
-                let width = circleMode ? Self.pillHeight
-                    : (compactMode ? Self.mediumWidth : max(Self.minWidth, statusStack.fittingSize.width + 4))
-                transition(toWidth: width,
-                           activeView: statusStack,
-                           inactiveViews: [recordingStack, transcribingStack],
-                           isNewAppearance: previousState == .hidden)
-                scheduleDismiss(after: 2.0)
-
-            case .cancelled:
-                cancelDismiss()
-
-            case .hidden:
-                dismiss()
+            guard let config = config(for: state) else {
+                // Cancel glides away briskly; a timed-out flash eases out gently.
+                glideAway(duration: state == .cancelled ? 0.20 : 0.26,
+                          scale: state == .cancelled ? 0.88 : 0.94,
+                          lift: state == .cancelled ? 8 : 4)
+                return
             }
+            apply(config, isNewAppearance: previousState == .hidden)
         }
     }
 
-    private func startActivity() {
-        activityIndicator.startAnimation(nil)
+    private func apply(_ config: StateConfig, isNewAppearance: Bool) {
+        container.toolTip = config.tooltip
+
+        // Padded insets size the capsule around its content; collapsed insets
+        // shrink a stack into the circular mode. Inactive stacks keep padded
+        // values so morphs never pop.
+        let edge: CGFloat = config.liveSizing && compactMode ? 12 : 16
+        let padded = NSEdgeInsets(top: 0, left: edge, bottom: 0, right: edge)
+        recordingStack.edgeInsets = padded
+        transcribingStack.edgeInsets = circleMode && config.stack != .transcribing
+            ? NSEdgeInsets() : padded
+        statusStack.edgeInsets = circleMode && config.stack != .status
+            ? NSEdgeInsets() : padded
+        statusLabel.isHidden = circleMode
+        transcribingLabel.isHidden = circleMode
+        waveformWidthConstraint.constant = compactMode ? 64 : 82
+
+        switch config.stack {
+        case .recording:
+            recordingDot.startPulsing()
+            waveform.start()
+            activityIndicator.stopAnimation(nil)
+        case .transcribing:
+            transcribingLabel.stringValue = config.label
+            recordingDot.stopPulsing()
+            waveform.stop()
+            activityIndicator.startAnimation(nil)
+        case .status:
+            statusIcon.image = config.icon.flatMap { Self.symbol($0.name, tint: $0.tint) }
+            statusLabel.stringValue = config.label
+            recordingDot.stopPulsing()
+            waveform.stop()
+            activityIndicator.stopAnimation(nil)
+        }
+
+        let active = stacks[config.stack]!
+        let width = circleMode ? Self.pillHeight
+            : (config.liveSizing && compactMode ? Self.mediumWidth
+                : max(Self.minWidth, active.fittingSize.width + 4))
+        transition(toWidth: width,
+                   activeView: active,
+                   inactiveViews: stacks.values.filter { $0 !== active },
+                   isNewAppearance: isNewAppearance)
+
+        if let delay = config.autoDismissAfter {
+            scheduleDismiss(after: delay)
+        }
     }
 
-    private func stopActivity() {
-        activityIndicator.stopAnimation(nil)
+    /// The three state container stacks, keyed for generic state application.
+    private var stacks: [StateConfig.ActiveStack: NSView] {
+        [.recording: recordingStack, .transcribing: transcribingStack, .status: statusStack]
     }
 
-    func updateLevel(_ value: Float) {
-        waveform.level = value
+    /// The waveform pulls its level from this provider on every animation tick,
+    /// so no second timer is needed to feed samples in.
+    var levelProvider: (() -> Float)? {
+        get { waveform.levelProvider }
+        set { waveform.levelProvider = newValue }
     }
 
     func cancel() {
@@ -572,38 +519,20 @@ final class DictationPill: NSPanel {
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
-    private func cancelDismiss() {
+    /// Shared dismissal animation. A user cancel glides up quicker and tighter;
+    /// a timed-out flash eases out more gently.
+    private func glideAway(duration: TimeInterval, scale: CGFloat, lift: CGFloat) {
         recordingDot.stopPulsing()
         waveform.stop()
-        stopActivity()
+        activityIndicator.stopAnimation(nil)
         container.toolTip = nil
 
         // Swift upward glide into the notch aperture
         NSAnimationContext.runAnimationGroup({ ctx in
-            ctx.duration = 0.20
+            ctx.duration = duration
             ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             animator().alphaValue = 0
-            container.layer?.setAffineTransform(CGAffineTransform(scaleX: 0.88, y: 0.88).translatedBy(x: 0, y: 8))
-        }, completionHandler: { [weak self] in
-            guard let self else { return }
-            self.orderOut(nil)
-            self.container.layer?.setAffineTransform(.identity)
-            self.currentState = .hidden
-            self.onHidden?()
-        })
-    }
-
-    private func dismiss() {
-        recordingDot.stopPulsing()
-        waveform.stop()
-        stopActivity()
-        container.toolTip = nil
-
-        NSAnimationContext.runAnimationGroup({ ctx in
-            ctx.duration = 0.26
-            ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            animator().alphaValue = 0
-            container.layer?.setAffineTransform(CGAffineTransform(scaleX: 0.94, y: 0.94).translatedBy(x: 0, y: 4))
+            container.layer?.setAffineTransform(CGAffineTransform(scaleX: scale, y: scale).translatedBy(x: 0, y: lift))
         }, completionHandler: { [weak self] in
             guard let self else { return }
             self.orderOut(nil)
@@ -675,7 +604,7 @@ final class PillContainerView: NSView {
             removeTrackingArea(area)
         }
         let area = NSTrackingArea(rect: bounds,
-                                  options: [.mouseEnteredAndExited, .activeAlways, .cursorUpdate],
+                                  options: [.mouseEnteredAndExited, .activeAlways],
                                   owner: self,
                                   userInfo: nil)
         addTrackingArea(area)
@@ -683,10 +612,6 @@ final class PillContainerView: NSView {
 
     override func resetCursorRects() {
         addCursorRect(bounds, cursor: .pointingHand)
-    }
-
-    override func cursorUpdate(with event: NSEvent) {
-        NSCursor.pointingHand.set()
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -770,12 +695,17 @@ final class RecordingDotView: NSView {
 // MARK: - 60 FPS Multi-Band Audio Visualizer
 
 final class WaveformView: NSView {
-    var level: Float = 0
+    /// Single animation clock: the tick pulls a fresh level itself instead of
+    /// relying on a second timer feeding values in from outside.
+    var levelProvider: (() -> Float)?
 
     private var targetLevel: Float = 0
     private var smoothedLevel: Float = 0
     private var phase: Float = 0
     private var timer: Timer?
+    /// True while the input is silent and the last drawn frame already shows
+    /// the resting pose; ticks then do no work until sound returns.
+    private var isResting = false
 
     private let barCount = 19
     private let centerIndex = 9
@@ -800,13 +730,22 @@ final class WaveformView: NSView {
         // is hidden.
         let t = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
             guard let self else { return }
-            self.targetLevel = self.level
+            self.targetLevel = self.levelProvider?() ?? 0
 
             // Organic audio ballistics: fast attack, smooth exponential decay
             if self.targetLevel > self.smoothedLevel {
                 self.smoothedLevel += (self.targetLevel - self.smoothedLevel) * 0.40
             } else {
                 self.smoothedLevel += (self.targetLevel - self.smoothedLevel) * 0.10
+            }
+
+            // Bars rest when the input is silent: draw the static pose once,
+            // then stop redrawing until sound returns.
+            if self.targetLevel <= 0.001 && self.smoothedLevel <= 0.001 {
+                guard !self.isResting else { return }
+                self.isResting = true
+            } else {
+                self.isResting = false
             }
 
             self.phase += 0.08
@@ -819,9 +758,9 @@ final class WaveformView: NSView {
     func stop() {
         timer?.invalidate()
         timer = nil
-        level = 0
         targetLevel = 0
         smoothedLevel = 0
+        isResting = false
     }
 
     override var intrinsicContentSize: NSSize { NSSize(width: 82, height: 20) }
@@ -841,15 +780,11 @@ final class WaveformView: NSView {
             // Gaussian bell taper
             let taper = exp(-dist * dist * 1.8)
 
-            // Organic idle breathing wave when silent (so it never looks frozen)
-            let idleWave = CGFloat(sin(Double(phase) * 1.8 + Double(i) * 0.45)) * 1.2
-            let baseHeight: CGFloat = 3.0 + idleWave * taper
-
-            // Voice reactive wave
+            // Voice reactive wave (scales with level, so silence rests flat)
             let voiceWave = 0.55 + 0.45 * CGFloat(sin(Double(phase) * 3.5 + Double(i) * 0.85))
             let activeHeight = maxH * taper * env * voiceWave
 
-            heights[i] = max(2.5, min(maxH, baseHeight + activeHeight))
+            heights[i] = max(3.0, min(maxH, 3.0 + activeHeight))
         }
 
         // Single smoothing pass for liquid contour continuity

@@ -7,8 +7,7 @@ disappears.
 
 Replacement happens only on whole-word tokens (word boundaries), so ordinary
 speech such as "the period of the function" is left alone when the token is
-embedded — the trade-off is documented in the README; disable with
-``--no-smart-text`` or ``transcribe config set smart_text false``.
+embedded — the trade-off is documented in the README.
 """
 
 from __future__ import annotations
