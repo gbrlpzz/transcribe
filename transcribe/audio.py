@@ -14,9 +14,10 @@ import struct
 import subprocess
 import sys
 import tempfile
-import threading
 import time
 import wave
+
+SAMPLE_RATE = 16000  # Whisper's native input rate
 
 
 def ffmpeg_path() -> str | None:
@@ -33,7 +34,7 @@ def ffmpeg_path() -> str | None:
     return None
 
 
-def is_pcm_wav(path: str, sample_rate: int = 16000) -> bool:
+def is_pcm_wav(path: str) -> bool:
     """Return whether *path* is already Whisper-friendly PCM WAV audio.
 
     The native recorder writes exactly this format. Avoiding a second ffmpeg
@@ -46,7 +47,7 @@ def is_pcm_wav(path: str, sample_rate: int = 16000) -> bool:
                 fh.getcomptype() == "NONE"
                 and fh.getnchannels() == 1
                 and fh.getsampwidth() == 2
-                and fh.getframerate() == sample_rate
+                and fh.getframerate() == SAMPLE_RATE
             )
     except (OSError, wave.Error):
         return False
@@ -73,13 +74,11 @@ def list_input_devices() -> list[dict[str, str]]:
     return devices
 
 
-def find_input_device(preference: str = "auto") -> str:
-    """Return the avfoundation device index to use for recording."""
+def find_input_device() -> str:
+    """Return the avfoundation device index of the default microphone."""
     devices = list_input_devices()
     if not devices:
         return "0"
-    if preference != "auto":
-        return preference
     # prefer anything that mentions the built-in microphone
     for d in devices:
         if "built-in" in d["name"].lower() or "microphone" in d["name"].lower():
@@ -90,9 +89,8 @@ def find_input_device(preference: str = "auto") -> str:
 class Recorder:
     """Press-to-talk style recorder: start(), stop() -> wav path."""
 
-    def __init__(self, device: str = "auto", sample_rate: int = 16000):
-        self.device = find_input_device(device)
-        self.sample_rate = sample_rate
+    def __init__(self):
+        self.device = find_input_device()
         self._proc: subprocess.Popen | None = None
         self._pcm_path: str | None = None
         self._wav_path: str | None = None
@@ -107,7 +105,7 @@ class Recorder:
         self._proc = subprocess.Popen(
             [ff, "-hide_banner", "-loglevel", "error",
              "-f", "avfoundation", "-i", f":{self.device}",
-             "-ac", "1", "-ar", str(self.sample_rate),
+             "-ac", "1", "-ar", str(SAMPLE_RATE),
              "-f", "s16le", self._pcm_path],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
@@ -123,8 +121,7 @@ class Recorder:
         except subprocess.TimeoutExpired:
             self._proc.kill()
             self._proc.wait(timeout=10)
-        duration = time.time() - self._started
-        _pcm_to_wav(self._pcm_path, self._wav_path, self.sample_rate)
+        _pcm_to_wav(self._pcm_path, self._wav_path, SAMPLE_RATE)
         os.remove(self._pcm_path)
         return self._wav_path or ""
 
@@ -133,7 +130,6 @@ def _pcm_to_wav(pcm_path: str, wav_path: str, sample_rate: int) -> None:
     """Wrap raw s16le PCM in a standard 44-byte WAV header."""
     with open(pcm_path, "rb") as fh:
         data = fh.read()
-    n = len(data) // 2
     header = struct.pack(
         "<4sI4s4sIHHIIHH4sI",
         b"RIFF", 36 + len(data), b"WAVE",
@@ -145,7 +141,7 @@ def _pcm_to_wav(pcm_path: str, wav_path: str, sample_rate: int) -> None:
         fh.write(data)
 
 
-def audio_to_wav(path: str, sr: int = 16000) -> str:
+def audio_to_wav(path: str) -> str:
     """Normalize any audio file to a 16 kHz mono PCM WAV via ffmpeg.
 
     Whisper backends are picky about container/codec combinations; routing every
@@ -167,7 +163,7 @@ def audio_to_wav(path: str, sr: int = 16000) -> str:
         out = fh.name
     proc = subprocess.run(
         [ff, "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-i", path,
-         "-map", "0:a:0?", "-vn", "-sn", "-dn", "-ac", "1", "-ar", str(sr),
+         "-map", "0:a:0?", "-vn", "-sn", "-dn", "-ac", "1", "-ar", str(SAMPLE_RATE),
          "-c:a", "pcm_s16le", out],
         stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
     )
@@ -189,12 +185,11 @@ def audio_to_wav(path: str, sr: int = 16000) -> str:
     return out
 
 
-def record_interactive(device: str = "auto", sample_rate: int = 16000,
-                       prompt: str | None = None) -> str:
+def record_interactive(prompt: str | None = None) -> str:
     """Record until the user presses Enter; returns the WAV path."""
     if prompt is None:
         prompt = "Recording… press Enter to stop"
-    rec = Recorder(device=device, sample_rate=sample_rate)
+    rec = Recorder()
     rec.start()
     print(prompt, file=sys.stderr)
     input()

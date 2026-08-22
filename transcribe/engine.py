@@ -1,14 +1,8 @@
-"""Transcription engines.
+"""Transcription engine.
 
-Two local backends, auto-selected:
-
-- ``mlx``  — mlx-whisper. The default on Apple Silicon: Whisper turbo stays
-  warm for reliable local dictation and file transcription.
-- ``faster`` — faster-whisper (CTranslate2). Fallback for Intel Macs, Linux,
-  and any machine where MLX is not available.
-
-Models are downloaded once from Hugging Face and cached locally; transcription
-itself never leaves the machine.
+One backend (MLX on Apple Silicon), one model (4-bit Whisper turbo), one
+language mode (automatic per-utterance detection). Models are downloaded once
+from Hugging Face and cached locally; transcription never leaves the machine.
 """
 
 from __future__ import annotations
@@ -23,29 +17,9 @@ from transcribe.audio import audio_to_wav, is_pcm_wav
 # models are cached locally; hide the "Fetching 4 files" hub flash on repeat runs
 os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
 
-# Tested model profiles. The 4-bit profile is the release default: identical
-# accuracy to fp16 in benchmarks, ~12% faster decode, and about a third of the
-# weight memory (452 MB vs 1543 MB GPU-resident on an M4). The raw repository
-# path remains accepted for development.
-MODELS: dict[str, dict[str, str]] = {
-    "turbo-q4": {
-        "mlx": "mlx-community/whisper-large-v3-turbo-4bit",
-        "faster": "Systran/faster-whisper-turbo",
-        "languages": "multilingual — fast 4-bit default",
-    },
-    "turbo-q8": {
-        "mlx": "mlx-community/whisper-large-v3-turbo-8bit",
-        "faster": "Systran/faster-whisper-turbo",
-        "languages": "multilingual — 8-bit alternative",
-    },
-    "turbo": {
-        "mlx": "mlx-community/whisper-turbo",
-        "faster": "Systran/faster-whisper-turbo",
-        "languages": "multilingual — full precision (fp16)",
-    },
-}
-
-DEFAULT_MODEL = "turbo-q4"
+# The release model: identical accuracy to fp16 in benchmarks, ~12% faster
+# decode, about a third of the weight memory (452 MB vs 1543 MB GPU-resident).
+DEFAULT_MODEL_REPO = "mlx-community/whisper-large-v3-turbo-4bit"
 
 # Fast per-utterance language detection. whisper-tiny's encoder is far smaller
 # than turbo's, so using it for language ID instead of the main model's own
@@ -95,56 +69,12 @@ def _local_model_path(repo: str) -> str:
     return str(shim)
 
 
-def resolve_model(model: str, backend: str) -> str:
-    """Map a short alias to the concrete repo for the chosen backend."""
-    if model in MODELS:
-        return MODELS[model][backend]
-    return model
-
-
-def available_backends() -> list[str]:
-    out = []
-    try:
-        import mlx_whisper  # noqa: F401
-        out.append("mlx")
-    except ImportError:
-        pass
-    try:
-        import faster_whisper  # noqa: F401
-        out.append("faster")
-    except ImportError:
-        pass
-    return out
-
-
-def detect_backend(preference: str = "auto") -> str:
-    """Pick a backend: preference, or mlx on Apple Silicon, else faster."""
-    if preference in ("mlx", "faster"):
-        return preference
-    backends = available_backends()
-    if "mlx" in backends and platform.machine() == "arm64":
-        return "mlx"
-    if "faster" in backends:
-        return "faster"
-    raise RuntimeError(
-        "no transcription backend installed — run `uv pip install mlx-whisper` "
-        "(Apple Silicon) or `uv pip install faster-whisper` (any Mac/Linux)"
-    )
-
-
 class Transcriber:
-    """Lazy-loaded, cached transcriber shared by the CLI and the local server."""
+    """Lazy-loaded, warm transcriber shared by the CLI and the local server."""
 
-    def __init__(self, model: str = DEFAULT_MODEL, backend: str = "auto",
-                 language: str = "auto"):
-        # Resolve the backend once. Besides avoiding duplicate import/probe
-        # work, this guarantees model resolution and the selected backend stay
-        # in lockstep when auto-detection is used.
-        self.backend = detect_backend(backend)
-        self.model = resolve_model(model, self.backend)
-        self.language = language
+    def __init__(self):
+        self.model = DEFAULT_MODEL_REPO
         self._mlx = None
-        self._faster = None
         self._lid = None            # whisper-tiny language detector (lazy)
         self._main_model = None     # direct reference to the resident model
         self._model_path: str | None = None  # local path mlx-whisper loads
@@ -152,7 +82,7 @@ class Transcriber:
 
     def _limit_gpu_cache(self) -> None:
         """Bound MLX's reusable GPU buffer cache once per process."""
-        if self._cache_limited or self.backend != "mlx":
+        if self._cache_limited:
             return
         try:
             import mlx.core as mx
@@ -217,36 +147,26 @@ class Transcriber:
 
     def load(self) -> None:
         self._limit_gpu_cache()
-        if self.backend == "mlx" and self._mlx is None:
+        if self._mlx is None:
             import mlx_whisper
             self._mlx = mlx_whisper
             self._model_path = _local_model_path(self.model)
-        elif self.backend == "faster" and self._faster is None:
-            from faster_whisper import WhisperModel
-            self._faster = WhisperModel(self.model, device="auto", compute_type="auto")
 
     def warm(self) -> None:
         """Load backend code and model weights before the first request."""
         self.load()
-        if self.backend == "mlx":
-            # mlx-whisper keeps its model in a process-global holder. Calling
-            # only ``import mlx_whisper`` (the old warm-up behavior) left the
-            # expensive snapshot download and weight load on first dictation.
-            self._load_main()
-            if self.language == "auto":
-                self._load_lid()  # first dictation should not pay tiny's load
+        # mlx-whisper keeps its model in a process-global holder. Calling
+        # only ``import mlx_whisper`` left the expensive snapshot download
+        # and weight load on first dictation.
+        self._load_main()
+        self._load_lid()  # first dictation should not pay tiny's load
 
     @property
     def is_warm(self) -> bool:
-        if self.backend == "mlx":
-            return self._main_model is not None
-        return self._faster is not None
+        return self._main_model is not None
 
-    def transcribe(self, audio_path: str, *, language: str | None = None,
-                   verbose: bool = False) -> dict[str, Any]:
+    def transcribe(self, audio_path: str, *, verbose: bool = False) -> dict[str, Any]:
         self.load()
-        requested = language or self.language   # per-call overrides instance
-        lang = None if requested == "auto" else requested
         t0 = time.time()
 
         # The native recorder already produces 16 kHz mono PCM WAV. Let the
@@ -256,31 +176,23 @@ class Transcriber:
         temporary_wav = not is_pcm_wav(audio_path)
         wav_path = audio_to_wav(audio_path) if temporary_wav else audio_path
         try:
-            if self.backend == "mlx":
-                if lang is None:
-                    # Fast per-utterance detection keeps mixed-language
-                    # dictation working without the main model's ~0.9 s
-                    # auto-detect pass. Low confidence falls back to it.
-                    lid_lang, confidence = self._detect_language(wav_path)
-                    if lid_lang and confidence >= LID_CONFIDENCE_THRESHOLD:
-                        lang = lid_lang
-                self._load_main()
-                self._restore_main_in_holder()
-                result = self._mlx.transcribe(
-                    wav_path,
-                    path_or_hf_repo=self._model_path or self.model,
-                    language=lang,
-                    verbose=None if not verbose else verbose,
-                )
-                text = result.get("text", "").strip()
-                detected = result.get("language", lang or "")
-            else:
-                segments, info = self._faster.transcribe(
-                    wav_path, language=lang, vad_filter=True
-                )
-                parts = [seg.text.strip() for seg in segments]
-                text = " ".join(parts).strip()
-                detected = info.language if lang is None else lang
+            # Fast per-utterance detection keeps mixed-language dictation
+            # working without the main model's ~0.9 s auto-detect pass.
+            # Low confidence falls back to it.
+            lang = None
+            lid_lang, confidence = self._detect_language(wav_path)
+            if lid_lang and confidence >= LID_CONFIDENCE_THRESHOLD:
+                lang = lid_lang
+            self._load_main()
+            self._restore_main_in_holder()
+            result = self._mlx.transcribe(
+                wav_path,
+                path_or_hf_repo=self._model_path or self.model,
+                language=lang,
+                verbose=None if not verbose else verbose,
+            )
+            text = result.get("text", "").strip()
+            detected = result.get("language", lang or "")
         finally:
             if temporary_wav and wav_path and os.path.exists(wav_path):
                 try:
@@ -292,66 +204,38 @@ class Transcriber:
             "text": text,
             "language": detected or "",
             "model": self.model,
-            "backend": self.backend,
             "elapsed": round(elapsed, 2),
         }
 
 
-def transcribe(audio_path: str, *, model: str = DEFAULT_MODEL,
-               backend: str = "auto", language: str = "auto",
-               verbose: bool = False) -> dict[str, Any]:
+def transcribe(audio_path: str, *, verbose: bool = False) -> dict[str, Any]:
     """One-shot transcription (loads the model, transcribes, returns)."""
-    return Transcriber(model=model, backend=backend, language=language)        .transcribe(audio_path, verbose=verbose)
+    return Transcriber().transcribe(audio_path, verbose=verbose)
 
 
 def detect_system_info() -> dict[str, Any]:
-    """Inspect the local machine and return hardware specs and tailored recommendations."""
+    """Inspect the local machine and return hardware facts for ``doctor``."""
     import subprocess
-    sys_name = platform.system()
-    machine = platform.machine()
-    is_apple_silicon = sys_name == "Darwin" and machine == "arm64"
 
-    ram_gb = 0
     cpu_brand = ""
-    if sys_name == "Darwin":
-        try:
-            mem_bytes = int(subprocess.check_output(["sysctl", "-n", "hw.memsize"], text=True).strip())
-            ram_gb = round(mem_bytes / (1024 ** 3))
-        except Exception:
-            pass
-        try:
-            cpu_brand = subprocess.check_output(["sysctl", "-n", "machdep.cpu.brand_string"], text=True).strip()
-        except Exception:
-            pass
-    elif sys_name == "Linux":
-        try:
-            mem_bytes = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
-            ram_gb = round(mem_bytes / (1024 ** 3))
-        except Exception:
-            pass
+    ram_gb = 0
+    try:
+        mem_bytes = int(subprocess.check_output(
+            ["sysctl", "-n", "hw.memsize"], text=True).strip())
+        ram_gb = round(mem_bytes / (1024 ** 3))
+    except Exception:
+        pass
+    try:
+        cpu_brand = subprocess.check_output(
+            ["sysctl", "-n", "machdep.cpu.brand_string"], text=True).strip()
+    except Exception:
+        pass
 
-    if is_apple_silicon:
-        hw_desc = f"Apple Silicon ({cpu_brand or 'M-series'}, {ram_gb} GB Unified Memory)" if ram_gb else f"Apple Silicon ({cpu_brand or 'M-series'})"
-        rec_backend = "mlx"
-        rec_backend_pkg = "mlx-whisper"
-        install_cmd = "uv tool install --from git+https://github.com/gbrlpzz/transcribe transcribe --with mlx-whisper"
-    else:
-        hw_desc = f"{sys_name} ({machine}, {ram_gb} GB RAM)" if ram_gb else f"{sys_name} ({machine})"
-        rec_backend = "faster"
-        rec_backend_pkg = "faster-whisper"
-        install_cmd = "uv tool install --from git+https://github.com/gbrlpzz/transcribe transcribe --with faster-whisper"
-
-    rec_model = "turbo"
-    model_reason = "Tested default with one warm local model"
-
+    hw_desc = f"{cpu_brand or 'Apple Silicon'}, {ram_gb} GB unified memory" if ram_gb \
+        else (cpu_brand or "Apple Silicon")
     return {
-        "is_apple_silicon": is_apple_silicon,
         "hardware_desc": hw_desc,
         "ram_gb": ram_gb,
         "cpu_brand": cpu_brand,
-        "recommended_backend": rec_backend,
-        "recommended_backend_pkg": rec_backend_pkg,
-        "install_cmd": install_cmd,
-        "recommended_model": rec_model,
-        "model_reason": model_reason,
+        "recommended_model": "turbo-q4 (4-bit whisper-turbo, always warm)",
     }

@@ -1,14 +1,13 @@
 """Transcribe command-line interface.
 
 Usage:
-    transcribe                  interactive dictation (Enter to start/stop)
-    transcribe listen           same as above, with flags
+    transcribe                  dictate from the microphone (Enter to stop)
     transcribe file AUDIO...    transcribe existing files
-    transcribe serve            localhost engine server for the menu-bar app
+    transcribe start|stop|restart   control the background engine
+    transcribe serve            run the engine in the foreground
     transcribe clean            remove recordings/transcripts older than TTL
-    transcribe config           get/set configuration values
-    transcribe models           list models and what is installed
-    transcribe doctor           diagnose the setup (ffmpeg, backend, perms)
+    transcribe config           get/set the few remaining settings
+    transcribe doctor           diagnose the setup (ffmpeg, mlx, perms)
     transcribe app              build / install / launch the native app
 """
 
@@ -21,11 +20,13 @@ import shutil
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.request
 
 from transcribe import __version__
 from transcribe.audio import record_interactive
-from transcribe.config import Config, config_path, load, save
-from transcribe.engine import MODELS, Transcriber, available_backends, detect_backend, transcribe
+from transcribe.config import config_path, load, save
+from transcribe.engine import Transcriber, detect_system_info, transcribe
 from transcribe.paste import check_accessibility, paste_text
 from transcribe.smarttext import apply_smart_text, strip_whitespace
 from transcribe.storage import clean, save_session
@@ -40,25 +41,10 @@ def _parse() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="command")
 
     listen = sub.add_parser("listen", help="record from the microphone and transcribe")
-    listen.add_argument("-s", "--seconds", type=float, default=None,
-                        help="record for a fixed number of seconds (default: until Enter)")
-    listen.add_argument("--paste", dest="paste", action="store_true", default=None,
-                        help="paste into the focused app (default: from config)")
-    listen.add_argument("--no-paste", dest="paste", action="store_false")
-    listen.add_argument("--smart-text", dest="smart_text", action="store_true", default=None)
-    listen.add_argument("--no-smart-text", dest="smart_text", action="store_false")
-    listen.add_argument("-l", "--language", default=None, help="auto | en | it | …")
-    listen.add_argument("-m", "--model", default=None, help="model alias or HF repo")
     listen.add_argument("--no-keep", action="store_true", help="delete audio+transcript immediately")
 
     file_p = sub.add_parser("file", help="transcribe existing audio files")
     file_p.add_argument("paths", nargs="+", metavar="AUDIO")
-    file_p.add_argument("-l", "--language", default="en",
-                        help="transcription language (default: en for files)")
-    file_p.add_argument("-m", "--model", default=None,
-                        help="model alias or HF repo (default: turbo-q4)")
-    file_p.add_argument("--smart-text", dest="smart_text", action="store_true", default=None)
-    file_p.add_argument("--no-smart-text", dest="smart_text", action="store_false")
     file_p.add_argument("--json", action="store_true", help="machine-readable output")
     file_p.add_argument("--no-keep", action="store_true")
     file_p.add_argument("--notify", action="store_true",
@@ -66,13 +52,13 @@ def _parse() -> argparse.ArgumentParser:
     file_p.add_argument("--background", action="store_true",
                         help="detach and run in the background so you can keep dictating")
 
-    serve_p = sub.add_parser("serve", help="run the localhost engine server (for the app)")
-    serve_p.add_argument("--port", type=int, default=None)
-    serve_p.add_argument("--no-warm", action="store_true", help="don't preload the model")
+    sub.add_parser("start", help="start the background engine")
+    sub.add_parser("stop", help="stop the running engine")
+    sub.add_parser("restart", help="restart the engine")
+
+    serve_p = sub.add_parser("serve", help="run the engine in the foreground (for the app)")
 
     clean_p = sub.add_parser("clean", help="delete expired live data and file transcripts")
-    clean_p.add_argument("--ttl-hours", type=float, default=None,
-                         help="legacy override: use one TTL for both kinds")
     clean_p.add_argument("--live-ttl-hours", type=float, default=None,
                          help="live dictation TTL (default: 1 hour)")
     clean_p.add_argument("--file-ttl-hours", type=float, default=None,
@@ -84,30 +70,15 @@ def _parse() -> argparse.ArgumentParser:
     cfg.add_argument("key", nargs="?", default=None)
     cfg.add_argument("value", nargs="?", default=None)
 
-    sub.add_parser("models", help="list models and installed status")
-
     doctor = sub.add_parser("doctor", help="diagnose the setup")
-    doctor.add_argument("--check-mic", action="store_true", help="also probe the microphone")
 
     app = sub.add_parser("app", help="build / install / launch the native menu-bar app")
     app.add_argument("action", nargs="?", choices=["build", "install", "launch", "path"], default="build")
     return p
 
 
-def _transcribe_args(args, cfg: Config) -> dict:
-    return {
-        "model": args.model or cfg.model,
-        "backend": cfg.backend,
-        "language": args.language or cfg.language,
-    }
-
-
-def _smart(text: str, enabled: bool | None, cfg: Config) -> str:
-    text = strip_whitespace(text)
-    smart = cfg.smart_text if enabled is None else enabled
-    if smart:
-        text = apply_smart_text(text)
-    return text
+def _smart(text: str) -> str:
+    return apply_smart_text(strip_whitespace(text))
 
 
 def _osa_escape(s: str) -> str:
@@ -116,12 +87,7 @@ def _osa_escape(s: str) -> str:
 
 
 def notify(title: str, message: str) -> None:
-    """Best-effort macOS notification.
-
-    Uses ``terminal-notifier`` when available (reliable, session-attached) and
-    otherwise falls back to ``osascript display notification``. Silent no-op if
-    neither is usable.
-    """
+    """Best-effort macOS notification (terminal-notifier, then osascript)."""
     tn = shutil.which("terminal-notifier")
     if tn:
         try:
@@ -144,8 +110,7 @@ def _daemonize() -> bool:
     (exit immediately). Uses a new process group in the *same* session so the
     child stays attached to the user's GUI session — meaning macOS
     notifications still deliver — while being detached from the launching
-    process group so it survives the Quick Action / terminal exiting. Falls
-    back to foreground if forking is unavailable.
+    process group so it survives the Quick Action / terminal exiting.
     """
     try:
         pid = os.fork()
@@ -165,20 +130,17 @@ def _daemonize() -> bool:
 
 
 def _write_markdown(audio_path: str, text: str) -> str:
-    """Write the transcript as ``<basename>.md`` next to the audio file.
-
-    Returns the markdown path (same directory, same stem as the source audio).
-    """
+    """Write the transcript as ``<basename>.md`` next to the audio file."""
     nl = chr(10)
     base = os.path.splitext(audio_path)[0]
     md_path = base + ".md"
     title = os.path.splitext(os.path.basename(audio_path))[0]
-    content = f"# {title}{nl}{nl}{text}{nl}"
     with open(md_path, "w", encoding="utf-8") as fh:
-        fh.write(content)
+        fh.write(f"# {title}{nl}{nl}{text}{nl}")
     return md_path
 
-def _maybe_keep(args, cfg: Config, wav: str | None, text: str, result: dict,
+
+def _maybe_keep(args, cfg, wav: str | None, text: str, result: dict,
                 *, source: str = "live", source_path: str = "",
                 transcript_path: str = ""):
     """Persist a session unless --no-keep; always honor per-kind cleanup."""
@@ -202,22 +164,103 @@ def _maybe_keep(args, cfg: Config, wav: str | None, text: str, result: dict,
           file_ttl_hours=cfg.cleanup_ttl_hours)
 
 
-def cmd_listen(args, cfg: Config) -> int:
-    if cfg.paste and not check_accessibility():
-        print("note: pasting needs Accessibility permission — `transcribe doctor` explains how.",
-              file=sys.stderr)
-    wav = record_interactive(device=cfg.device, sample_rate=cfg.sample_rate)
-    print(f"Transcribing…", file=sys.stderr)
-    result = transcribe(wav, **_transcribe_args(args, cfg))
-    text = _smart(result["text"], args.smart_text, cfg)
-    print(text)
-    _maybe_keep(args, cfg, wav, text, result, source="live")
-    if cfg.paste and args.paste is not False:
-        paste_text(text)
+# MARK: - engine control (start / stop / restart)
+
+def _engine_health(port: int, timeout: float = 1.0) -> bool:
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=timeout) as resp:
+            return resp.status == 200
+    except (urllib.error.URLError, OSError):
+        return False
+
+
+def _engine_pids(port: int) -> list[int]:
+    """PIDs of processes listening on the engine port."""
+    try:
+        out = subprocess.check_output(["lsof", "-ti", f"tcp:{port}", "-sTCP:LISTEN"],
+                                      text=True, timeout=5)
+    except (subprocess.SubprocessError, OSError):
+        return []
+    return sorted({int(line) for line in out.split() if line.strip().isdigit()})
+
+
+def cmd_start(args, cfg) -> int:
+    port = cfg.port
+    if _engine_health(port):
+        print(f"engine already running on port {port}")
+        return 0
+    log_path = os.path.join(os.path.dirname(config_path()), "engine.log")
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+    log = open(log_path, "ab")
+    log.write(f"\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] engine start\n".encode())
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "transcribe", "serve"],
+        stdout=log, stderr=subprocess.STDOUT,
+        start_new_session=True,  # survive the terminal
+    )
+    deadline = time.time() + 60  # health binds before weights finish loading
+    while time.time() < deadline:
+        if _engine_health(port):
+            print(f"engine running on port {port} (pid {proc.pid}, log: {log_path})")
+            return 0
+        if proc.poll() is not None:
+            print(f"error: engine exited with code {proc.returncode} — see {log_path}",
+                  file=sys.stderr)
+            return 1
+        time.sleep(0.25)
+    print("error: engine did not become healthy in time — see "
+          f"{log_path}", file=sys.stderr)
+    return 1
+
+
+def cmd_stop(args, cfg) -> int:
+    port = cfg.port
+    pids = _engine_pids(port)
+    if not pids:
+        print("engine not running")
+        return 0
+    for pid in pids:
+        try:
+            os.kill(pid, 15)  # SIGTERM: let the server finish in-flight work
+        except ProcessLookupError:
+            pass
+    deadline = time.time() + 10
+    while time.time() < deadline:
+        if not _engine_pids(port):
+            print(f"engine stopped (was on port {port})")
+            return 0
+        time.sleep(0.2)
+    for pid in _engine_pids(port):
+        try:
+            os.kill(pid, 9)
+        except ProcessLookupError:
+            pass
+    print(f"engine force-stopped (was on port {port})")
     return 0
 
 
-def cmd_file(args, cfg: Config) -> int:
+def cmd_restart(args, cfg) -> int:
+    cmd_stop(args, cfg)
+    return cmd_start(args, cfg)
+
+
+# MARK: - dictation & files
+
+def cmd_listen(args, cfg) -> int:
+    if not check_accessibility():
+        print("note: pasting needs Accessibility permission — `transcribe doctor` explains how.",
+              file=sys.stderr)
+    wav = record_interactive()
+    print("Transcribing…", file=sys.stderr)
+    result = transcribe(wav)
+    text = _smart(result["text"])
+    print(text)
+    _maybe_keep(args, cfg, wav, text, result, source="live")
+    paste_text(text)
+    return 0
+
+
+def cmd_file(args, cfg) -> int:
     if args.notify and args.paths:
         notify("Transcribe", f"Transcribing {os.path.basename(args.paths[0])}…")
     if args.background and not _daemonize():
@@ -225,11 +268,9 @@ def cmd_file(args, cfg: Config) -> int:
 
     results = []
     failures = []
-    # Reuse one loaded transcriber for multi-selection. Constructing a new
-    # faster-whisper model for every file is needlessly expensive; MLX also
-    # benefits from keeping one backend instance for the whole batch.
+    # Reuse one loaded transcriber for multi-selection: keeping one warm model
+    # for the whole batch avoids a weight reload per file.
     transcriber = None
-    transcribe_options = _transcribe_args(args, cfg)
     for path in args.paths:
         if not os.path.exists(path):
             print(f"error: no such file: {path}", file=sys.stderr)
@@ -239,7 +280,7 @@ def cmd_file(args, cfg: Config) -> int:
             continue
         try:
             if transcriber is None:
-                transcriber = Transcriber(**transcribe_options)
+                transcriber = Transcriber()
             result = transcriber.transcribe(path)
         except Exception as exc:  # noqa: BLE001 - report and keep going
             print(f"error: failed to transcribe {path}: {exc}", file=sys.stderr)
@@ -248,7 +289,7 @@ def cmd_file(args, cfg: Config) -> int:
                 notify("Transcription failed", f"{os.path.basename(path)} — {exc}")
             continue
 
-        text = _smart(result["text"], args.smart_text, cfg)
+        text = _smart(result["text"])
         md_path = _write_markdown(path, text)
         results.append({"path": path, "markdown": md_path, **result, "text": text})
         if not args.json:
@@ -257,27 +298,24 @@ def cmd_file(args, cfg: Config) -> int:
         if args.notify:
             notify("Transcription saved", os.path.basename(md_path))
         _maybe_keep(args, cfg, None, text, result, source="file",
-                     source_path=path, transcript_path=md_path)
+                    source_path=path, transcript_path=md_path)
 
     if args.json:
         print(json.dumps(results, ensure_ascii=False, indent=2))
     return 1 if failures else 0
 
 
-def cmd_serve(args, cfg: Config) -> int:
+def cmd_serve(args, cfg) -> int:
     from transcribe.server import serve
-    serve(port=args.port, warm=None if not args.no_warm else False, verbose=True)
+    serve(verbose=True)
     return 0
 
 
-def cmd_clean(args, cfg: Config) -> int:
-    if args.ttl_hours is not None:
-        live_ttl = file_ttl = args.ttl_hours
-    else:
-        live_ttl = (args.live_ttl_hours if args.live_ttl_hours is not None
-                    else cfg.live_cleanup_ttl_hours)
-        file_ttl = (args.file_ttl_hours if args.file_ttl_hours is not None
-                    else cfg.cleanup_ttl_hours)
+def cmd_clean(args, cfg) -> int:
+    live_ttl = (args.live_ttl_hours if args.live_ttl_hours is not None
+                else cfg.live_cleanup_ttl_hours)
+    file_ttl = (args.file_ttl_hours if args.file_ttl_hours is not None
+                else cfg.cleanup_ttl_hours)
     removed = clean(dry_run=args.dry_run, live_ttl_hours=live_ttl,
                     file_ttl_hours=file_ttl)
     if removed:
@@ -292,7 +330,7 @@ def cmd_clean(args, cfg: Config) -> int:
     return 0
 
 
-def cmd_config(args, cfg: Config) -> int:
+def cmd_config(args, cfg) -> int:
     if args.action == "path":
         print(config_path())
         return 0
@@ -331,37 +369,13 @@ def cmd_config(args, cfg: Config) -> int:
     return 0
 
 
-def _model_cached(repo: str) -> bool:
-    """True if the HF snapshot for this repo is already in the local cache."""
-    import os as _os
-    cache = _os.path.expanduser("~/.cache/huggingface/hub")
-    safe = repo.replace("/", "--")
-    return _os.path.isdir(_os.path.join(cache, f"models--{safe}"))
-
-
-def cmd_models(args, cfg: Config) -> int:
-    backends = available_backends()
-    print(f"installed backends: {', '.join(backends) or 'none'}")
-    print(f"default backend:    {detect_backend(cfg.backend)}")
-    print()
-    for alias, info in MODELS.items():
-        print(f"{alias:16s} {info['languages']}")
-        for b in ("mlx", "faster"):
-            mark = "downloaded" if _model_cached(info[b]) else ("backend ready" if b in backends else "missing")
-            print(f"    {b:8s} {info[b]}  [{mark}]")
-    return 0
-
-
-def cmd_doctor(args, cfg: Config) -> int:
-    from transcribe.engine import detect_system_info
+def cmd_doctor(args, cfg) -> int:
     info = detect_system_info()
 
-    print("System Diagnostics & Recommendations")
-    print("────────────────────────────────────")
-    print(f"Hardware:            {info['hardware_desc']}")
-    print(f"Recommended Backend: {info['recommended_backend_pkg']}")
-    print(f"Recommended Model:   {info['recommended_model']} ({info['model_reason']})")
-    print(f"Active Model:        {cfg.model} (language: {cfg.language})")
+    print("System Diagnostics")
+    print("──────────────────")
+    print(f"Hardware:     {info['hardware_desc']}")
+    print(f"Model:        {info['recommended_model']}")
     print()
 
     ok = True
@@ -371,37 +385,38 @@ def cmd_doctor(args, cfg: Config) -> int:
         ok = ok and good
         print(f"{'✓' if good else '✗'} {name}{(' — ' + detail) if detail else ''}")
 
-    from transcribe.audio import ffmpeg_path
+    from transcribe.audio import ffmpeg_path, find_input_device
     ff = ffmpeg_path()
     report("ffmpeg", bool(ff), ff or "install with `brew install ffmpeg`")
 
-    backends = available_backends()
-    backend_good = bool(backends)
-    if not backends:
-        detail = f"Missing! Run: `{info['install_cmd']}`"
-    else:
-        detail = f"available: {', '.join(backends)}"
-    report("transcription backend", backend_good, detail)
+    try:
+        import mlx_whisper  # noqa: F401
+        report("mlx-whisper", True)
+    except ImportError:
+        report("mlx-whisper", False, "missing — reinstall with `make install`")
 
-    from transcribe.audio import find_input_device
-    dev = find_input_device(cfg.device)
+    dev = find_input_device()
     report("microphone device", True, f"avfoundation index {dev}")
 
-    if cfg.paste:
-        report("accessibility (for paste)", check_accessibility(),
-               "System Settings → Privacy & Security → Accessibility → enable your terminal")
+    report("accessibility (for paste)", check_accessibility(),
+           "System Settings → Privacy & Security → Accessibility → enable your terminal"
+           if not check_accessibility() else "")
 
     stale = clean(dry_run=True, live_ttl_hours=cfg.live_cleanup_ttl_hours,
                   file_ttl_hours=cfg.cleanup_ttl_hours)
     report("no stale sessions", not stale,
            f"{len(stale)} file(s) past live {cfg.live_cleanup_ttl_hours:g}h / "
            f"file {cfg.cleanup_ttl_hours:g}h TTL — run `transcribe clean`")
+
+    engine = "running" if _engine_health(cfg.port) else "not running"
+    print(f"{'✓' if engine == 'running' else '•'} engine           {engine} "
+          f"(start/stop/restart: `transcribe start|stop|restart`)")
     print()
     print("config file:", config_path())
     return 0 if ok else 1
 
 
-def cmd_app(args, cfg: Config) -> int:
+def cmd_app(args, cfg) -> int:
     repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     build = os.path.join(repo, "app", "build.sh")
     if args.action == "path":
@@ -439,8 +454,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_listen(args, cfg)
     handlers = {
         "file": cmd_file, "serve": cmd_serve, "clean": cmd_clean,
-        "config": cmd_config, "models": cmd_models, "doctor": cmd_doctor,
-        "app": cmd_app,
+        "config": cmd_config, "doctor": cmd_doctor, "app": cmd_app,
+        "start": cmd_start, "stop": cmd_stop, "restart": cmd_restart,
     }
     return handlers[args.command](args, cfg)
 

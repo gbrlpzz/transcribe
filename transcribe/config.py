@@ -1,10 +1,12 @@
 """Configuration for Transcribe.
 
-Settings live in a single JSON file so they are easy to read, edit and share
-with the native menu-bar app. On macOS the file lives under
-``~/Library/Application Support/transcribe/config.json`` (Apple HIG convention
-for app data); elsewhere it falls back to the XDG data directory.
+One model, one language mode (auto), one backend. The only settings that
+remain are the ones that can genuinely vary per machine: the hotkey, the local
+port, and retention windows. Everything else is a constant in code.
 
+The file lives at ``~/Library/Application Support/transcribe/config.json``
+(Apple HIG convention for app data) and is shared with the native menu-bar
+app. Unknown keys from older releases are ignored, so upgrading never breaks.
 Everything can be overridden with the ``TRANSCRIBE_HOME`` environment variable
 (for tests and exotic setups).
 """
@@ -13,8 +15,6 @@ from __future__ import annotations
 
 import json
 import os
-import platform
-import sys
 from dataclasses import asdict, dataclass, fields
 from typing import Any
 
@@ -24,27 +24,16 @@ def default_home() -> str:
     override = os.environ.get("TRANSCRIBE_HOME")
     if override:
         return os.path.expanduser(override)
-    if platform.system() == "Darwin":
-        base = os.path.expanduser("~/Library/Application Support")
-    elif sys.platform.startswith("linux"):
-        base = os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share"))
-    else:
-        base = os.path.expanduser("~/.transcribe")
-    return os.path.join(base, "transcribe")
+    return os.path.join(os.path.expanduser("~/Library/Application Support"), "transcribe")
 
 
 @dataclass
 class Config:
-    # --- transcription -----------------------------------------------------
-    model: str = "turbo-q4"         # fast 4-bit default; see transcribe.engine.MODELS
-    language: str = "auto"          # "auto" | "en" | "it" | any ISO code
-    backend: str = "auto"           # "auto" | "mlx" | "faster"
-    # --- audio -------------------------------------------------------------
-    device: str = "auto"            # avfoundation input index, or "auto"
-    sample_rate: int = 16000
-    # --- behaviour ---------------------------------------------------------
-    paste: bool = True              # paste into the focused app after transcribing
-    smart_text: bool = True         # "comma" -> ","  "new line" -> newline, etc.
+    # --- native app --------------------------------------------------------
+    hotkey: str = "ctrl+space"  # Carbon modifier names + key
+    # --- local engine server ----------------------------------------------
+    port: int = 8765
+    # --- retention ---------------------------------------------------------
     # Live dictation is ephemeral: keep a short recovery window so a bad paste
     # can be pasted again. File jobs use the longer, user-visible TTL below.
     live_cleanup_ttl_hours: float = 1.0
@@ -53,13 +42,6 @@ class Config:
     # accumulate expired recordings and transcripts between restarts.
     cleanup_interval_minutes: float = 30.0  # 0 disables the periodic sweep
     keep_transcripts: bool = True   # save a .json transcript next to each recording
-    # --- local engine server ----------------------------------------------
-    port: int = 8765
-    warm_on_start: bool = True      # preload the model when the server starts
-    # --- native app --------------------------------------------------------
-    hotkey: str = "ctrl+space"  # Carbon modifier names + key
-    paste_mode: str = "cmd-v"       # "cmd-v" (pasteboard + Cmd+V) | "keystroke"
-    launch_at_login: bool = False
 
 
 DEFAULTS = Config()
@@ -78,14 +60,9 @@ def load() -> Config:
             with open(path) as fh:
                 raw = json.load(fh)
         except (json.JSONDecodeError, OSError) as exc:
-            print(f"warning: could not read {path} ({exc}); using defaults", file=sys.stderr)
+            print(f"warning: could not read {path} ({exc}); using defaults", file=__import__("sys").stderr)
     known = {f.name for f in fields(Config)}
     values = {k: v for k, v in raw.items() if k in known and v is not None}
-    # Release 0.3.x shipped fp16 `turbo` as the only profile. That stored value
-    # was the default rather than a deliberate choice, so upgrade it to the
-    # faster 4-bit default. The explicit `turbo` alias remains selectable.
-    if values.get("model") == "turbo":
-        values["model"] = "turbo-q4"
     return Config(**values)
 
 

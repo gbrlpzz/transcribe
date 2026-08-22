@@ -22,10 +22,13 @@ classifiers = [
     "Topic :: Text Processing :: Linguistic",
 ]
 
+# Apple Silicon Macs only: MLX is the one backend, turbo-q4 the one model.
+dependencies = [
+    "mlx==0.32.1",
+    "mlx-whisper==0.4.3",
+]
+
 [project.optional-dependencies]
-mlx = ["mlx-whisper==0.4.3", "mlx==0.32.1"]
-faster = ["faster-whisper>=1.0"]
-all = ["mlx-whisper==0.4.3", "mlx==0.32.1", "faster-whisper>=1.0"]
 dev = ["pytest>=8"]
 
 [project.scripts]
