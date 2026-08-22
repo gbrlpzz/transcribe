@@ -18,6 +18,7 @@ struct Runner {
             ("SessionStoreTests", SessionStoreTests.allTests),
             ("AppConfigTests", AppConfigTests.allTests),
             ("DictationSupportTests", DictationSupportTests.allTests),
+            ("CLITests", CLITests.allTests)
         ]
         var passed = 0, skipped = 0, failed = 0
         for (suiteName, tests) in suites {
