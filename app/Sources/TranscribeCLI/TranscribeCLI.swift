@@ -35,7 +35,7 @@ public enum TranscribeCLI {
     /// LocaleManagerError → CLI exit-code mapping (b-locales table): every
     /// install/allocation failure surfaces as "locale not ready" (4); only a
     /// missing speech stack itself is a transcription failure (5).
-    nonisolated static func mapLocaleError(_ e: LocaleManagerError) -> CLIError {
+    nonisolated public static func mapLocaleError(_ e: LocaleManagerError) -> CLIError {
         switch e {
         case .speechUnavailable:
             return .transcriptionFailed(
@@ -47,15 +47,15 @@ public enum TranscribeCLI {
 
     // MARK: - Argument parsing (hand-rolled, zero dependencies)
 
-    struct Invocation {
-        var files: [String] = []
-        var json = false
-        var noKeep = false
-        var localeFlag: String?
-        var install: String?
+    public struct Invocation {
+        public var files: [String] = []
+        public var json = false
+        public var noKeep = false
+        public var localeFlag: String?
+        public var install: String?
     }
 
-    static let usageText = """
+    public static let usageText = """
     transcribe — local file transcription on Apple's native speech stack (macOS 26+)
 
     USAGE: transcribe <command> [options]
@@ -77,7 +77,7 @@ public enum TranscribeCLI {
     There is no `serve`: the native Transcribe has no server, port, or health endpoint.
     """
 
-    static func parse(_ argv: [String]) -> Result<Invocation, CLIError> {
+    public static func parse(_ argv: [String]) -> Result<Invocation, CLIError> {
         var inv = Invocation()
         guard argv.count >= 2 else { return .failure(.usage("missing command")) }
         let rest = Array(argv.dropFirst(2))
@@ -166,8 +166,11 @@ public enum TranscribeCLI {
 
     /// Auto = system language+region locale when supported, else en-US, else
     /// first supported (§5.4). Pure over an already-canonical list: unit-tested.
-    nonisolated static func resolveAuto(system: Locale, supported: [Locale]) -> Locale? {
-        if let exact = supported.first(where: { $0 == system }) { return exact }
+    nonisolated public static func resolveAuto(system: Locale, supported: [Locale]) -> Locale? {
+        let sysKey = LocaleManager.bcp47(system)
+        if let exact = supported.first(where: { LocaleManager.bcp47($0) == sysKey }) {
+            return exact
+        }
         let ens = supported.filter { $0.language.languageCode?.identifier == "en" }
         if let us = ens.first(where: { $0.region?.identifier == "US" }) { return us }
         return supported.first
@@ -216,12 +219,13 @@ public enum TranscribeCLI {
 
     // MARK: - file verb
 
+    /// One JSON line per file; keys sorted, `md_path` "" under --no-keep.
     struct FileResultLine: Encodable {
         let file: String
         let text: String
         let language: String
         let elapsed_ms: Int
-        let md_path: String?
+        let md_path: String
     }
 
     private static func cmdFile(_ inv: Invocation) async throws -> Int32 {
@@ -252,7 +256,7 @@ public enum TranscribeCLI {
                     enc.outputFormatting = [.sortedKeys]
                     let line = FileResultLine(
                         file: path, text: out.text, language: out.language,
-                        elapsed_ms: out.elapsedMs, md_path: mdPath?.path)
+                        elapsed_ms: out.elapsedMs, md_path: mdPath?.path ?? "")
                     let data = try enc.encode(line)
                     print(String(decoding: data, as: UTF8.self))
                 } else {
@@ -268,7 +272,7 @@ public enum TranscribeCLI {
 
     /// np-G1: without speech-recognition authorization the pipeline emits
     /// nothing at all. Gate it explicitly; one-time prompt when undetermined.
-    static func ensureSpeechAuthorized() async throws {
+    public static func ensureSpeechAuthorized() async throws {
         switch SFSpeechRecognizer.authorizationStatus() {
         case .authorized: return
         case .notDetermined:
@@ -428,13 +432,13 @@ public enum TranscribeCLI {
 }
 
 /// CLI error surface; each case pins one documented exit code.
-enum CLIError: Error {
+public enum CLIError: Error {
     case usage(String)
     case fileError(String)
     case localeNotReady(String)
     case transcriptionFailed(String)
 
-    var exitCode: Int32 {
+    public var exitCode: Int32 {
         switch self {
         case .usage: return 2
         case .fileError: return 3
@@ -443,7 +447,7 @@ enum CLIError: Error {
         }
     }
 
-    var errorMessage: String {
+    public var errorMessage: String {
         switch self {
         case .usage(let m): return m
         case .fileError(let m): return m
