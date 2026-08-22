@@ -53,6 +53,22 @@ def is_pcm_wav(path: str) -> bool:
         return False
 
 
+def read_pcm_wav(path: str):
+    """Read 16-bit PCM mono WAV into a float32 waveform scaled to [-1, 1].
+
+    Callers must have verified the format with :func:`is_pcm_wav` first. The
+    scaling matches the backend's own s16le decode byte for byte (int16 cast
+    to float32, divided by 32768), so handing this array to Whisper instead
+    of the file path is transcript-identical while skipping the ffmpeg
+    subprocess decode entirely.
+    """
+    import numpy as np
+
+    with wave.open(path, "rb") as fh:
+        frames = fh.readframes(fh.getnframes())
+    return np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
+
+
 def list_input_devices() -> list[dict[str, str]]:
     """Enumerate AVFoundation audio input devices via ffmpeg."""
     ff = ffmpeg_path()

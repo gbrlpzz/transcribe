@@ -9,9 +9,12 @@ from __future__ import annotations
 
 import os
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from transcribe.audio import audio_to_wav, is_pcm_wav
+if TYPE_CHECKING:
+    import numpy as np
+
+from transcribe.audio import audio_to_wav, is_pcm_wav, read_pcm_wav
 
 # models are cached locally; hide the "Fetching 4 files" hub flash on repeat runs
 os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
@@ -103,8 +106,11 @@ class Transcriber:
             ModelHolder.get_model(LID_MODEL, dtype=mx.float16)
             self._lid = ModelHolder.model
 
-    def _detect_language(self, wav_path: str) -> tuple[str | None, float]:
+    def _detect_language(self, audio: str | np.ndarray) -> tuple[str | None, float]:
         """Detect the spoken language with whisper-tiny (~25 ms per call).
+
+        ``audio`` is a path or an in-memory waveform. A waveform skips the
+        ffmpeg subprocess that reading a path would spawn.
 
         Returns ``(language, confidence)``; ``(None, 0.0)`` signals the caller
         should fall back to the main model's own detection.
@@ -114,7 +120,7 @@ class Transcriber:
             from mlx_whisper.audio import N_SAMPLES, log_mel_spectrogram, pad_or_trim
             self._load_lid()
             mel = log_mel_spectrogram(
-                wav_path, n_mels=self._lid.dims.n_mels, padding=N_SAMPLES)
+                audio, n_mels=self._lid.dims.n_mels, padding=N_SAMPLES)
             segment = pad_or_trim(mel, 3000, axis=-2).astype(mx.float16)
             _, probs = self._lid.detect_language(segment)
             mx.eval(probs)
@@ -173,24 +179,28 @@ class Transcriber:
         self.load()
         t0 = time.time()
 
-        # The native recorder already produces 16 kHz mono PCM WAV. Let the
-        # backend decode that file directly; normalizing it first would invoke
-        # ffmpeg twice. Keep normalization for arbitrary external formats and
-        # malformed/non-PCM WAV files so their errors remain actionable.
+        # The native recorder already produces 16 kHz mono PCM WAV. Decode it
+        # once here — a wave-module read costs a fraction of a millisecond —
+        # and hand the same samples to language detection and transcription;
+        # passing a path would make the backend spawn ffmpeg once per pass.
+        # Keep normalization for arbitrary external formats and malformed/
+        # non-PCM WAV files so their errors remain actionable.
         temporary_wav = not is_pcm_wav(audio_path)
         wav_path = audio_to_wav(audio_path) if temporary_wav else audio_path
         try:
             # Fast per-utterance detection keeps mixed-language dictation
             # working without the main model's ~0.9 s auto-detect pass.
             # Low confidence falls back to it.
+            samples = None if temporary_wav else read_pcm_wav(wav_path)
             lang = None
-            lid_lang, confidence = self._detect_language(wav_path)
+            lid_lang, confidence = self._detect_language(
+                samples if samples is not None else wav_path)
             if lid_lang and confidence >= LID_CONFIDENCE_THRESHOLD:
                 lang = lid_lang
             self._load_main()
             self._restore_main_in_holder()
             result = self._mlx.transcribe(
-                wav_path,
+                samples if samples is not None else wav_path,
                 path_or_hf_repo=self._model_path or self.model,
                 language=lang,
             )
