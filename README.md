@@ -3,12 +3,15 @@
 Dictation and file transcription for macOS 26, on Apple's on-device speech stack.
 One small app. Nothing to install.
 
-```
-paste fires 58–105 ms after key-up (measured p50, warm)
-a 4-minute file transcribes in 4,200 ms (RTF 0.0176x)
-the whole app: 0.6 MB — binary 601,904 bytes, icon 15,613 bytes
-download: one zip, ~252 KB
-```
+| Measured on an M4, warm | |
+|---|---|
+| Paste fires after key-up | **58–105 ms** (p50) |
+| 4-minute audio file → transcript | **4,200 ms** — RTF **0.0176×** |
+| Entire app | **0.6 MB** |
+| Download | **one ~250 KB zip** |
+| Setup after drag-to-Applications | **none** |
+
+No models. No Python. No ffmpeg. No server.
 
 ## How it works
 
