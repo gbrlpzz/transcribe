@@ -22,6 +22,12 @@ transcribe restart  # stop + start, use after any hiccup
 
 You can also click **Engine: not running — Start** in the menu-bar app, or run it in the foreground with `transcribe serve`. The server listens only on `127.0.0.1:8765`.
 
+### Engine busy and request timeouts
+
+The engine runs one transcription at a time by design. A second request while one is running is rejected immediately with HTTP 503 `engine busy` - retry when the current job finishes; nothing is queued. The same immediate 503 applies to engine reloads triggered while a job runs (the menu-bar **Check for Updates…** flow retries automatically).
+
+A single request is hard-capped at 30 minutes server-side (`REQUEST_TIMEOUT_S`). If the cap fires, the client gets an HTTP 500, the engine unlocks itself, and later requests work normally; if transcription ever wedges persistently, `transcribe restart` clears it.
+
 ## The first request is slow
 
 The first run downloads the model weights: about 450 MB for `turbo-q4` plus about 71 MB for the language-detection helper (roughly 520 MB total). This happens once; later requests use the local cache.
