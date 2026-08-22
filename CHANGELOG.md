@@ -17,7 +17,7 @@ actual run.
 | Language detection honesty | claimed ~25 ms | measured 58.8–61.1 ms, docs corrected | truth |
 | Release zip junk | 14 `__MACOSX/` entries | 0 entries (23 → 9 zip entries) | clean |
 | Repo weight | +208 KB committed icon artifacts | deleted (regenerable via one script) | hygiene |
-| App code | DictationPill switch duplication | TODO(merge): exact LOC delta from app wave (~−300 Swift) | simpler |
+| App code | DictationPill 875 → 797 LOC (state table); 358 Swift lines deleted / 276 added app-wide (measured vs 0.5.0) | simpler |
 
 - **Diet engine**: the runtime now uses
   [mlx-whisper-diet](https://github.com/gbrlpzz/mlx-whisper-diet), our public

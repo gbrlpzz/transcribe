@@ -368,7 +368,8 @@ def cmd_doctor(args, cfg) -> int:
     print("System Diagnostics")
     print("──────────────────")
     print(f"Hardware:     {hardware}")
-    print("Model:        turbo-q4 (4-bit whisper-turbo, always warm)")
+    from transcribe.engine import DEFAULT_MODEL_REPO
+    print(f"Model:        {DEFAULT_MODEL_REPO} (4-bit whisper-turbo, always warm)")
     print()
 
     ok = True
@@ -380,7 +381,9 @@ def cmd_doctor(args, cfg) -> int:
 
     from transcribe.audio import ffmpeg_path, find_input_device
     ff = ffmpeg_path()
-    report("ffmpeg", bool(ff), ff or "install with `brew install ffmpeg`")
+    # optional since single-decode: dictation never needs it; only non-WAV media-file jobs do
+    print(f"{'✓' if ff else '•'} ffmpeg           "
+          f"{ff or 'optional - needed only for non-WAV media files (brew install ffmpeg)'}")
 
     try:
         import mlx_whisper  # noqa: F401

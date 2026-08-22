@@ -9,7 +9,6 @@ transcribe doctor
 ```
 
 The command checks the engine, `mlx-whisper`, the microphone, Accessibility permissions, stale sessions, and `ffmpeg` availability.
-<!-- TODO(merge): exact doctor wording depends on b-engine's diff (ffmpeg may downgrade from hard check to warning) -->
 `ffmpeg` is only needed for media files that are not WAV/PCM; dictation works without it.
 
 ## The engine is offline

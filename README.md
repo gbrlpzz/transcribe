@@ -35,7 +35,6 @@
 | macOS | 14.0 |
 | Storage | About 3 GB free |
 | Tools | [`uv`](https://docs.astral.sh/uv/) |
-<!-- TODO(merge): ffmpeg optionality below depends on b-engine's single-decode diff; coordinator confirms at merge -->
 | Optional | `ffmpeg` (`brew install ffmpeg`) — only needed to transcribe media files that are not WAV/PCM (for example MP3, OGG, M4A); dictation never uses it |
 
 ### Model and memory
