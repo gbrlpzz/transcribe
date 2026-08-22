@@ -5,10 +5,19 @@ import Foundation
 @main
 struct Runner {
     static func main() async {
+        // dictbench <wav> ... : live verification of the dictation lane
+        // (synthetic clips through the REAL engine pipeline). Not part of the
+        // 32-case suite; used by b-dictation acceptance + merge gates.
+        let args = CommandLine.arguments
+        if args.count > 1, args[1] == "dictbench" {
+            await DictBench.run(Array(args.dropFirst(2)))
+            return
+        }
         let suites: [(String, [(String, TestCase)])] = [
             ("LocaleManagerTests", LocaleManagerTests.allTests),
             ("SessionStoreTests", SessionStoreTests.allTests),
             ("AppConfigTests", AppConfigTests.allTests),
+            ("DictationSupportTests", DictationSupportTests.allTests),
         ]
         var passed = 0, skipped = 0, failed = 0
         for (suiteName, tests) in suites {
