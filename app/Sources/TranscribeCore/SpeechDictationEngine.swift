@@ -425,6 +425,9 @@ public final class SpeechDictationEngine {
     private var currentLaneID: String?
     private var throttle = PartialThrottle()
     private var sessionError: Error?
+    /// Set by failSession alongside cleanup so the REAL failure reason survives
+    /// to finish()/cancel-time reporting (np-G1 lesson: never lose the why).
+    private var pendingSessionError: Error?
     private var sawText = false
     private var startedAt: TimeInterval = 0
     private var firstPartialAt: TimeInterval = 0
@@ -479,9 +482,17 @@ public final class SpeechDictationEngine {
     /// Hotkey-up (np-G2): stop capture, force finalize, choose the lane, return
     /// its transcript. Empty string ⇒ nothing heard (caller flashes `.empty`).
     public func finish() async -> Result<String, Error> {
-        guard isActive else { return .failure(DictationError.analysisFailed("not active")) }
+        guard isActive else {
+            defer { pendingSessionError = nil }
+            if let e = pendingSessionError { return .failure(e) }
+            return .failure(DictationError.analysisFailed("not active"))
+        }
         if let setupTask { await setupTask.value }          // ultra-short taps
-        if let err = sessionError { cleanup(); return .failure(err) }
+        if let err = sessionError ?? pendingSessionError {
+            cleanup()
+            pendingSessionError = nil
+            return .failure(err)
+        }
         stopRequestedAt = now()
         signposter.emitEvent("dictation.stopRequested")
         source.stop()
@@ -489,11 +500,12 @@ public final class SpeechDictationEngine {
 
         var finalizeMs: Double?
         var drainMs: Double?
+        func sinceStop() -> Double { (now() - stopRequestedAt) * 1000 }   // ms
         do {
             try await analyzer?.finalizeAndFinishThroughEndOfInput()
-            finalizeMs = now() - stopRequestedAt
+            finalizeMs = sinceStop()
             for task in resultTasks { await Self.awaitWithTimeout(task, seconds: 3) }
-            drainMs = now() - stopRequestedAt
+            drainMs = sinceStop()
         } catch {
             sessionError = DictationError.analysisFailed(String(describing: error))
         }
@@ -503,14 +515,15 @@ public final class SpeechDictationEngine {
         let shape = ingest.shape
         let audioBytes = ingest.pcmBytes
         var m = Metrics(firstPartialMs: nil, finalizeMs: finalizeMs,
-                        drainMs: drainMs, stopToTextMs: now() - stopRequestedAt)
+                        drainMs: drainMs, stopToTextMs: sinceStop())
         if firstPartialAt > startedAt { m.firstPartialMs = (firstPartialAt - startedAt) * 1000 }
         lastMetrics = m
         signposter.emitEvent("dictation.finalized")
         lastSessionAudio = audioBytes.isEmpty ? nil : SessionAudio(
             pcm: audioBytes, sampleRate: shape.rate, channels: shape.channels)
-        let error = sessionError
+        let error = sessionError ?? pendingSessionError
         cleanup()
+        pendingSessionError = nil
         if let error { return .failure(error) }
         return .success(text)
     }
@@ -724,6 +737,7 @@ public final class SpeechDictationEngine {
         for t in resultTasks { t.cancel() }
         cleanup()
         if let doomed { Task { await doomed.cancelAndFinishNow() } }
+        pendingSessionError = error
         onFailure?(error.localizedDescription)
     }
 
@@ -733,6 +747,7 @@ public final class SpeechDictationEngine {
         currentLaneID = nil
         throttle = PartialThrottle()
         sessionError = nil
+        pendingSessionError = nil
         sawText = false
         startedAt = 0
         firstPartialAt = 0
@@ -742,7 +757,8 @@ public final class SpeechDictationEngine {
     }
 
     private func displayLanguage(_ bcp47: String) -> String {
-        Locale(identifier: bcp47).language.languageCode?.identifier ?? bcp47
+        let code = Locale(identifier: bcp47).language.languageCode?.identifier ?? bcp47
+        return Locale.current.localizedString(forLanguageCode: code) ?? code
     }
 
     private func now() -> TimeInterval { Double(DispatchTime.now().uptimeNanoseconds) / 1e9 }
