@@ -25,7 +25,7 @@
 	<key>CFBundleVersion</key>
 	<string>7</string>
 	<key>LSMinimumSystemVersion</key>
-	<string>14.0</string>
+	<string>26.0</string>
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSAccessibilityUsageDescription</key>
@@ -36,5 +36,7 @@
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Transcribe records your voice so it can transcribe it locally. Audio never leaves your Mac.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Transcribe uses Apple's on-device speech recognition so it can transcribe your voice locally. Audio never leaves your Mac.</string>
 </dict>
 </plist>
