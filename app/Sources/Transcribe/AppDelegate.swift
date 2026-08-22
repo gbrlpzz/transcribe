@@ -425,6 +425,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 refreshHUD()
                 return
             }
+            // Tear session state down BEFORE showing the result flash, or the
+            // trailing refreshHUD()'s pill.show(.hidden) kills it instantly.
+            nativeActive = false
+            liveState = .idle
+            stopEscapeMonitoring()
+            showIdleIcon()
             switch result {
             case .success(let raw):
                 let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -451,11 +457,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 presentAlert(title: "Transcription Failed",
                              message: error.localizedDescription)
             }
-            nativeActive = false
-            liveState = .idle
-            stopEscapeMonitoring()
-            showIdleIcon()
-            refreshHUD()
         }
     }
 

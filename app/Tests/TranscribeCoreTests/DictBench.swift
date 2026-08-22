@@ -99,7 +99,7 @@ enum DictBench {
             Double($0.length) / $0.processingFormat.sampleRate } ?? 1.0)
         let engine: SpeechDictationEngine? = await MainActor.run {
             let source = FileBufferSource(url: fileURL, speed: speed)
-            let engine = SpeechDictationEngine(localeManager: nil, audioSource: source)
+            let engine = SpeechDictationEngine(localeManager: LocaleManager(), audioSource: source)
             do {
                 try engine.start(localeSetting: requestedLocale == "auto" ? nil : requestedLocale)
             } catch {
@@ -139,7 +139,7 @@ enum DictBench {
         for i in 0..<cycles {
             let ok: Bool = await MainActor.run {
                 let source = FileBufferSource(url: URL(fileURLWithPath: clip), speed: 8)
-                let engine = SpeechDictationEngine(localeManager: nil, audioSource: source)
+                let engine = SpeechDictationEngine(localeManager: LocaleManager(), audioSource: source)
                 do { try engine.start(localeSetting: "en-US") } catch {
                     print("CANCELSTORM_START_FAIL \(error)"); return false
                 }
@@ -165,7 +165,7 @@ enum DictBench {
         for pass in 1...2 {
             let engine: SpeechDictationEngine? = await MainActor.run {
                 let source = FileBufferSource(url: url, speed: 2)
-                let engine = SpeechDictationEngine(localeManager: nil, audioSource: source)
+                let engine = SpeechDictationEngine(localeManager: LocaleManager(), audioSource: source)
                 do { try engine.start(localeSetting: "en-US") } catch {
                     print("DOUBLETAP FAIL pass \(pass): \(error)"); return nil
                 }

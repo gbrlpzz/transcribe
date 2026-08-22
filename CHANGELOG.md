@@ -1,5 +1,35 @@
 # Changelog
 
+## 1.0.0 — Leggerissimo
+
+Native rebuild on Apple's on-device speech stack (macOS 26 `SpeechAnalyzer`). The Python
+engine, HTTP server, uv toolchain, model downloads, and ffmpeg dependency are gone.
+
+Measured on the reference M4 (warm, p50 unless noted):
+
+- dictation stop→paste-ready 58 ms (en), 42 ms (de); auto dual-language 68 ms; p95 122 ms
+- file RTF 0.0175x cold / 0.0168x warm on a 240 s recording; AAC identical within noise
+- app bundle 0.6 MB (binary 601,904 B signed, icon 15,613 B); release zip ~252 KB
+- installed footprint: from ~1.5 GB (Python toolchain + models) to 0.6 MB
+- 50-case test battery green; live dual-lane, cancel-storm ×20, double-tap regression verified
+
+Added:
+- streaming recognition during speech (internal; paste latency is the visible effect)
+- auto language mode: two recognizers on one stream, best committed lane wins (+4 ms)
+- Language submenu (Auto/en/it/de/es variants) persisting to config.json
+- universal `transcribe` CLI inside the app binary (file · doctor · languages), single-binary
+  dispatch via argv[0]; agent-agnostic SKILL.md
+- docs/APPLE-SPEECH-API-NOTES.md: verified field notes on the new Apple speech API
+
+Changed:
+- sessions and `<file>.md` outputs are byte-identical to 0.6.0 (sha256-verified)
+- config.json gains `locale`; obsolete keys are ignored and no longer written
+- minimum macOS is now 26
+
+Removed:
+- Python package, pytest suite, pyproject/uv packaging, engine server, port key
+- model downloads and HF cache (~514 MB), ffmpeg requirement, engine skill plumbing
+
 ## 0.6.0 — diet engine + honesty pass (unreleased)
 
 Measured vs 0.5.0 on Apple M4, macOS 26.2 (August 2026). Every number below

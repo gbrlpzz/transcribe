@@ -517,27 +517,37 @@ public final class SpeechDictationEngine {
     // MARK: Setup
 
     private func setupAndAnalyze(localeSetting: String?) async {
+        let pinnedLocale: Bool = {
+            if let l = localeSetting?.lowercased(), !l.isEmpty, l != "auto" { return true }
+            return false
+        }()
         do {
             guard SpeechTranscriber.isAvailable else { throw DictationError.speechUnavailable }
             var resolved = try await resolveLanes(localeSetting: localeSetting)
 
             // np-G3: uninstalled locales fail SILENTLY via empty compat formats.
-            // Probe each lane, attempt install through LocaleManager (watchdog-
-            // wrapped), then DROP lanes that stayed dark. Auto degrades to the
-            // survivors; a pinned locale that stays dark is a hard error.
-            for (idx, lane) in resolved.enumerated() {
-                if await laneReady(lane.transcriber) { continue }
-                if let lm = localeManager {
-                    try? await lm.ensureInstalled(Locale(identifier: lane.id))
-                }
-                if await laneReady(lane.transcriber) { continue }
-                if resolved.count == 1 {
-                    throw DictationError.assetsNotReady(displayLanguage(lane.id))
-                }
-                resolved.remove(at: idx)
-                break
+            // Keep ready lanes, DROP dark ones - instantly, with NO install
+            // attempt here: downloadAndInstall() can stall ~120 s on Apple's
+            // side (np-G10/L-ASSET) and hotkey-up must never wait on it.
+            // Installs happen ONLY via an explicit language pick (menu / CLI).
+            var ready = [Lane]()
+            var darkNames = [String]()
+            for lane in resolved {
+                if await laneReady(lane.transcriber) { ready.append(lane) }
+                else { darkNames.append(displayLanguage(lane.id)) }
             }
-            guard !resolved.isEmpty else { throw DictationError.speechUnavailable }
+            if ready.isEmpty, resolved.count == 1, pinnedLocale, let only = resolved.first {
+                // A PINNED locale is explicit intent: one watchdog-wrapped try.
+                if let lm = localeManager {
+                    try? await lm.ensureInstalled(Locale(identifier: only.id))
+                }
+                if await laneReady(only.transcriber) { ready = [only] }
+            }
+            guard !ready.isEmpty else {
+                throw DictationError.assetsNotReady(
+                    darkNames.joined(separator: ", "))
+            }
+            resolved = ready
             lanes = resolved
 
             let modules: [any SpeechModule] = resolved.map { $0.transcriber }
