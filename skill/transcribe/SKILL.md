@@ -7,7 +7,8 @@ compatibility: prime-agent
 # Transcribe — local dictation and transcription
 
 Transcribe is a local macOS dictation and transcription tool. It uses one warm
-Whisper turbo model through the local engine. Audio stays on the Mac.
+4-bit Whisper turbo model through the local engine, with automatic per-utterance
+language detection. Audio stays on the Mac.
 
 ## When to use
 
@@ -20,10 +21,9 @@ Whisper turbo model through the local engine. Audio stays on the Mac.
 
 The `transcribe_skill` module exposes:
 
-- `transcribe_audio(path, language="auto", model=None) -> dict`
+- `transcribe_audio(path, smart_text=None) -> dict`
 - `dictate(seconds=None, paste=False) -> dict`
 - `clean(ttl_hours=None, dry_run=False) -> list[str]`
-- `models() -> str`
 - `doctor() -> str`
 
 ## CLI
@@ -31,28 +31,26 @@ The `transcribe_skill` module exposes:
 ```bash
 transcribe                 # dictate and paste
 transcribe file notes.m4a  # transcribe an existing file
-transcribe serve           # run the local engine
+transcribe start           # start the background engine
+transcribe restart         # restart it (first fix for any hiccup)
+transcribe serve           # run the engine in the foreground
 transcribe clean           # remove expired sessions
 transcribe doctor          # check setup
-transcribe models          # show the tested model profile
-transcribe config set language it
 transcribe app build       # build the menu-bar app
 ```
 
 ## Workflow
 
 1. For dictation, call `dictate()` or tell the user to use the menu-bar hotkey.
-2. For files, call `transcribe_audio(path)` and report the text, language, model,
-   and elapsed time.
+2. For files, call `transcribe_audio(path)` and report the text, language,
+   model, and elapsed time.
 3. For cleanup, call `clean()` when the user asks to remove expired sessions.
-4. On a new machine, install `ffmpeg`, install the engine with the MLX extra on
-   Apple Silicon or the fallback extra on other systems, and run `transcribe doctor`.
+4. On a new machine, install `ffmpeg`, install the engine, and run `transcribe doctor`.
 
 ## Decision rules
 
-- The default language is `auto`.
-- The supported model profile is `turbo` (`mlx-community/whisper-turbo` on
-  Apple Silicon and `Systran/faster-whisper-turbo` on the fallback backend).
+- Language is always automatic; there is no language parameter.
+- The model is fixed: 4-bit whisper-large-v3-turbo (`mlx-community/whisper-large-v3-turbo-4bit`) on MLX, Apple Silicon only.
 - Do not upload audio or use a cloud fallback.
-- If the engine is missing, run `transcribe doctor` and install the local backend.
-- Sessions expire after the configured TTL, which defaults to 48 hours.
+- If the engine is missing or misbehaving, run `transcribe doctor`, then `transcribe restart`.
+- Live sessions expire after one hour; generated file transcripts after seven days.

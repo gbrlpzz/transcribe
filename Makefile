@@ -1,7 +1,6 @@
-# Transcribe — fully local dictation & transcription for Prime Agent
+# Transcribe — fully local dictation & transcription for Apple Silicon Macs
 
 PYTHON ?= .venv/bin/python
-PIP     ?= .venv/bin/pip
 
 .PHONY: help venv install app app-install quick-action-install skill test doctor clean
 
@@ -12,10 +11,8 @@ venv: ## create the virtualenv and install the package (editable) + dev deps
 	uv venv --python 3.11 .venv
 	uv pip install --python .venv -e ".[dev]"
 
-BACKEND_FLAG ?= $(shell [ "$$(uname -s)" = "Darwin" ] && [ "$$(uname -m)" = "arm64" ] && echo "--with mlx==0.32.1 --with mlx-whisper==0.4.3" || echo "--with faster-whisper")
-
-install: ## install engine + skill for the current user (auto-detects hardware backend)
-	uv tool install $(BACKEND_FLAG) --force --reinstall .
+install: ## install engine + skill for the current user
+	uv tool install --force --reinstall .
 	@echo "→ installing Prime Agent skill…"
 	@bash scripts/install-skill.sh
 

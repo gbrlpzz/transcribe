@@ -8,44 +8,43 @@ Run:
 transcribe doctor
 ```
 
-The command checks the local engine, the selected backend, `ffmpeg`, the model cache, and macOS permissions.
+The command checks `ffmpeg`, `mlx-whisper`, the microphone, Accessibility permissions, stale sessions, and whether the engine is running.
 
 ## The engine is offline
 
-Start it from the menu-bar app by choosing **Engine: not running — Start**. You can also run:
+Start or restart it from the CLI:
 
 ```bash
-transcribe serve
+transcribe start    # starts the background engine
+transcribe restart  # stop + start, use after any hiccup
 ```
 
-The server listens only on `127.0.0.1:8765`.
+You can also click **Engine: not running — Start** in the menu-bar app, or run it in the foreground with `transcribe serve`. The server listens only on `127.0.0.1:8765`.
 
 ## The first request is slow
 
-The first request downloads the model weights. The default `turbo-q4` download is about 450 MB, plus about 80 MB for the language-detection helper, and happens once. Later requests use the local cache.
+The first run downloads the model weights: about 450 MB for `turbo-q4` plus about 80 MB for the language-detection helper. This happens once; later requests use the local cache.
 
 Check the model cache:
 
 ```bash
-transcribe models
 du -sh ~/.cache/huggingface/hub/models--mlx-community--whisper-large-v3-turbo-4bit
 ```
 
-Do not start a second engine process on port `8765`. If an old process is still listening, restart the menu-bar app or stop that process before starting the server manually.
+Do not start a second engine process on port `8765`. If an old process is still listening, run `transcribe restart`.
 
 ## Transcription fails with an MLX stream error
 
-MLX GPU streams belong to the thread that created them. The current server warms the model and runs inference on one dedicated engine thread. Restart the engine after upgrading MLX:
+MLX GPU streams belong to the thread that created them. The server warms the model and runs inference on one dedicated engine thread. Restart the engine after upgrading MLX:
 
 ```bash
-pkill -f 'transcribe serve --port 8765'
-transcribe serve --port 8765
+transcribe restart
 ```
 
-If the error continues, reinstall the supported tool environment and keep the tested MLX versions:
+If the error continues, reinstall the supported tool environment with the tested MLX versions:
 
 ```bash
-uv tool install --force --from git+https://github.com/gbrlpzz/transcribe transcribe --with mlx==0.32.1 --with mlx-whisper==0.4.3
+uv tool install --force --from git+https://github.com/gbrlpzz/transcribe transcribe
 ```
 
 ## Finder does not show the Quick Action
@@ -76,7 +75,7 @@ Run:
 transcribe doctor
 ```
 
-Enable Accessibility for Transcribe in **System Settings → Privacy & Security → Accessibility**. The app opens this page when setup is incomplete.
+Enable Accessibility for Transcribe in **System Settings → Privacy & Security → Accessibility**. The app opens this page when setup is incomplete. Until then, results are left on the pasteboard so you can paste manually.
 
 ## The HUD looks stuck
 

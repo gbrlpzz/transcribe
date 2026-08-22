@@ -34,10 +34,10 @@ CLI and Prime Agent skill ──────────────▶ same eng
 | `AppDelegate` | `app/Sources/Transcribe/AppDelegate.swift` | Coordinates live dictation, Finder files, queueing, HUD layout, cancellation, and output. |
 | `HotKey` | `app/Sources/Transcribe/HotKey.swift` | Registers the global tap-to-toggle shortcut through Carbon. |
 | `Paste` | `app/Sources/Transcribe/Paste.swift` | Copies text and sends `⌘V` through macOS Accessibility. |
-| `Engine` | `transcribe/engine.py` | Loads the tested `turbo` model and selects MLX or the fallback backend. |
+| `Engine` | `transcribe/engine.py` | Loads the single 4-bit turbo model on MLX and keeps it warm; detects language per utterance with whisper-tiny. |
 | `Server` | `transcribe/server.py` | Exposes `/health`, `/transcribe`, and `/reload`. Runs warm-up and inference on one dedicated engine thread. |
 | `Storage` | `transcribe/storage.py` | Stores sessions and removes expired data. |
-| `CLI` | `transcribe/cli.py` | Provides dictation, file, server, cleanup, configuration, and diagnostics commands. |
+| `CLI` | `transcribe/cli.py` | Provides dictation, file jobs, engine control (`start`/`stop`/`restart`), cleanup, configuration, and diagnostics. |
 
 ## Inference and concurrency
 
@@ -70,4 +70,4 @@ Swift and Python share this file:
 ~/Library/Application Support/transcribe/config.json
 ```
 
-The release profile uses the `turbo` model, the selected language, the local port, paste settings, a one-hour live cleanup TTL, and a seven-day file transcript TTL.
+The release uses one warm `turbo-q4` model with automatic language detection. Configurable values are the hotkey, the local port, a one-hour live cleanup TTL, and a seven-day file transcript TTL.

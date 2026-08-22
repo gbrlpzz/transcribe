@@ -11,7 +11,7 @@
                ▼                                  ▼
         ┌───────────────────────────────────────────────┐
         │  Local Engine Server (127.0.0.1:8765)         │
-        │  One warm Whisper turbo model · MLX           │
+        │  One warm Whisper turbo-q4 model · MLX        │
         │  Local storage · smart text · TTL cleanup     │
         └───────────────────────────────────────────────┘
 ```
@@ -19,33 +19,29 @@
 ## Features
 
 - **Local and private**: Speech recognition runs on the Mac. The engine binds to `127.0.0.1`.
-- **One tested model**: 4-bit `whisper-turbo` stays warm for fast, low-footprint dictation and file transcription.
-- **Native menu-bar app**: Global hotkey, paste support, microphone recording, and setup checks.
+- **One model, zero choices**: 4-bit `whisper-turbo` (`turbo-q4`) stays warm for fast, low-footprint dictation and file transcription. Language is detected automatically per utterance — mixed Italian/English just works.
+- **Native menu-bar app**: Global hotkey, paste into any app, microphone recording, and a one-row engine status you can click to start or restart.
 - **Notch HUD**: Apple-style status feedback with recording, transcription, result, error, and cancel states.
-- **Concurrent feedback**: Live dictation and file transcription have separate HUD states. A file is a large pill alone. During overlap, live dictation is on the left and the file is a spinner circle on the right.
-- **Finder Quick Action**: Transcribe any file with an audio stream that the local `ffmpeg` build can decode. The source file stays in place and `<file>.md` is saved beside it.
+- **Finder Quick Action**: Right-click any file with an audio stream and transcribe it. The source file stays in place and `<file>.md` is saved beside it.
 - **Prime Agent skill**: Optional local transcription tools for Prime Agent.
-- **Automatic cleanup**: Live audio and pasted text are kept for a one-hour recovery window. Generated file transcripts are kept for seven days by default. Selected source files are never deleted. The engine sweeps expired data every 30 minutes while it runs, so storage stays bounded between restarts.
+- **Automatic cleanup**: Live audio is kept for a one-hour recovery window, generated file transcripts for seven days. The engine sweeps expired data every 30 minutes while it runs.
 
 ## Requirements
 
-| Component | Minimum | Recommended |
-|---|---|---|
-| Mac | Apple Silicon M1+ or Intel Mac | Apple Silicon |
-| Memory | 8 GB | 16 GB or more |
-| macOS | 14.0 | Latest supported macOS |
-| Storage | About 3 GB | 5 GB free |
-| Tools | `uv`, `ffmpeg` | Homebrew, `uv`, `ffmpeg` |
+| Component | Minimum |
+|---|---|
+| Mac | Apple Silicon (M1 or newer) |
+| macOS | 14.0 |
+| Storage | About 3 GB free |
+| Tools | [`uv`](https://docs.astral.sh/uv/), `ffmpeg` (`brew install ffmpeg`) |
 
 ### Model and memory
 
-Transcribe keeps one quantized `whisper-turbo` model warm (`turbo-q4`, 4-bit). The model weights use about 450 MB of memory, and the engine caps its reusable GPU cache at 256 MB, so the whole engine stays under about 0.9 GB — small enough to run next to heavy workloads.
+Transcribe keeps exactly one model warm: the 4-bit `whisper-large-v3-turbo` conversion (`turbo-q4`, about 450 MB of memory). The engine caps its reusable GPU cache at 256 MB, so the whole engine stays under about 0.9 GB.
 
-Language detection uses a tiny helper model (about 80 MB) per utterance. This keeps automatic Italian/English switching fast: dictation results typically return in about one second for short utterances, with no fixed-language setup.
+Language detection uses a tiny helper model (whisper-tiny, about 80 MB) per utterance — about 25 ms — so dictation results typically return in about one second for short utterances with no language setup.
 
-A clean-process test on a 16 GB Apple Silicon Mac transcribed a 48-second file in about 2.4–2.6 seconds. Benchmarks showed identical accuracy to full-precision weights (0% word error rate on English, 0.8% on Italian samples).
-
-The app uses the MLX backend on Apple Silicon. The `faster-whisper` backend remains available for Intel Macs and other systems.
+Benchmarks on an M4 showed identical accuracy to full-precision weights (0% word error rate on English, 0.8% on Italian samples) at roughly 12% faster decode. See [docs/MODELS.md](docs/MODELS.md).
 
 ## Installation
 
@@ -53,13 +49,7 @@ Install `ffmpeg` and the local engine:
 
 ```bash
 brew install ffmpeg
-uv tool install --from git+https://github.com/gbrlpzz/transcribe transcribe --with mlx==0.32.1 --with mlx-whisper==0.4.3
-```
-
-For Intel Macs or other systems without MLX:
-
-```bash
-uv tool install --from git+https://github.com/gbrlpzz/transcribe transcribe --with faster-whisper
+uv tool install --from git+https://github.com/gbrlpzz/transcribe transcribe
 ```
 
 Build and install the menu-bar app:
@@ -70,19 +60,13 @@ cd transcribe
 make app-install
 ```
 
-Install the Finder Quick Action:
-
-```bash
-make quick-action-install
-```
-
 Optional Prime Agent skill:
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/gbrlpzz/transcribe/main/scripts/install-skill.sh)
 ```
 
-The first run downloads the model to `~/.cache/huggingface/hub/`. Later runs work offline. macOS asks for Microphone and Accessibility access on first use.
+The first run downloads the models to `~/.cache/huggingface/hub/`. Later runs work offline. macOS asks for Microphone and Accessibility access on first use.
 
 ## Usage
 
@@ -93,14 +77,14 @@ Launch `/Applications/Transcribe.app`. A microphone icon appears in the menu bar
 - Press `⌃␣` to start dictation.
 - Press `⌃␣` again to stop and transcribe.
 - Press `Esc` or click the HUD to cancel.
-- Use **Transcribe File…** to choose any media file with an audio track. `ffmpeg` handles the container and codec.
-- Use **Clean Up Old Recordings** to remove sessions older than the TTL.
+- Use **Transcribe File…** to choose any media file with an audio track.
+- The **Engine** row shows whether the engine is running; click it to start or restart it.
 
 The result is pasted into the focused app. File transcription also writes a Markdown file beside the source.
 
 ### Finder Quick Action
 
-Right-click any file in Finder and choose **Quick Actions → Transcribe**. Files without a decodable audio stream fail with the local `ffmpeg` reason. The source stays in its original folder. The transcript is written beside it as `<file>.md`.
+Right-click any file in Finder and choose **Quick Actions → Transcribe**. The source stays in its original folder; the transcript is written beside it as `<file>.md`.
 
 ### Command line
 
@@ -108,22 +92,23 @@ Right-click any file in Finder and choose **Quick Actions → Transcribe**. File
 # Dictate from the terminal
 transcribe
 
-# Transcribe files
-transcribe file meeting.m4a
-transcribe file interview.mp3 notes.wav --language it
+# Control the background engine
+transcribe start
+transcribe stop
+transcribe restart
 
-# Run or inspect the local engine
-transcribe serve
+# Transcribe files
+transcribe file meeting.m4a interview.mp3
+
+# Run or inspect the engine
+transcribe serve      # foreground, what the app spawns
 transcribe doctor
-transcribe models
 
 # Clean expired live data and file transcripts
 transcribe clean
 
 # Change local settings
-transcribe config set language en
-transcribe config set hotkey "ctrl+space"
-transcribe config set live_cleanup_ttl_hours 1
+transcribe config set hotkey "ctrl+option+space"
 transcribe config set cleanup_ttl_hours 168
 ```
 
@@ -134,7 +119,6 @@ import transcribe_skill
 
 result = await transcribe_skill.transcribe_audio("interview.m4a")
 print(result["text"])
-print(result["language"])
 
 await transcribe_skill.dictate()
 await transcribe_skill.clean()
@@ -142,23 +126,20 @@ await transcribe_skill.clean()
 
 ## Configuration
 
-Configuration is stored at `~/Library/Application Support/transcribe/config.json`:
+One model, one language mode (auto), one backend — there is nothing to choose. The remaining settings live at `~/Library/Application Support/transcribe/config.json`:
 
 ```json
 {
-  "model": "turbo",
-  "language": "auto",
-  "backend": "auto",
-  "paste": true,
-  "smart_text": true,
+  "hotkey": "ctrl+space",
+  "port": 8765,
   "live_cleanup_ttl_hours": 1.0,
   "cleanup_ttl_hours": 168.0,
-  "hotkey": "ctrl+space",
-  "port": 8765
+  "cleanup_interval_minutes": 30.0,
+  "keep_transcripts": true
 }
 ```
 
-The release profile uses the tested `turbo` model and one warm engine process. The engine accepts a raw model repository path for development, but other model profiles are not part of the supported app configuration.
+Unknown keys from older releases are ignored on load.
 
 ## Privacy and storage
 
@@ -176,7 +157,7 @@ See [docs/PRIVACY.md](docs/PRIVACY.md).
 
 ```
 transcribe/
-├── app/               # Native macOS menu-bar app
+├── app/               # Native macOS menu-bar app (Swift)
 ├── transcribe/        # Local Python engine, CLI, server, and storage
 ├── skill/             # Optional Prime Agent skill
 ├── docs/              # Architecture, privacy, model, and troubleshooting docs
