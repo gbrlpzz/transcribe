@@ -2,14 +2,25 @@ import AppKit
 import Carbon
 import AVFoundation
 import ApplicationServices
+import os
 import TranscribeCore
 
+/// AppKit delegate: everything here runs on the main actor (menu bar app,
+/// single UI thread). The native dictation engine is @MainActor too, so the
+/// lane wiring stays synchronous and race-free.
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var hotKey: HotKey?
     private let recorder = Recorder()
     private let pill = DictationPill()
     private let filePill = DictationPill()
+    // Native lane (engine == "apple"): built only when routed; the mlx path
+    // below stays byte-for-byte 0.6.0 (cutover safety).
+    private var nativeEngine: SpeechDictationEngine?
+    private var nativeActive = false
+    private var livePartial: String?
+    private let signposter = OSSignposter(subsystem: "app.transcribe", category: "dictation")
     private var fileHUDVisible = false
     private var engine: EngineClient!
     private var config = AppConfig.load()
@@ -46,13 +57,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupStatusItem()
         setupHotKey()
         setupPill()
+        setupNativeLaneIfRouted()
         engine.ensureEngineRunning { [weak self] ok in
             self?.refreshEngineState()
         }
         // Menu open and every transcribe re-check health anyway; this slow poll
         // only keeps the menu label fresh while the menu is closed.
         enginePollTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
-            self?.checkEngine()
+            // RunLoop timers fire on the main thread.
+            MainActor.assumeIsolated { self?.checkEngine() }
         }
         appReady = true
         let urls = queuedOpenURLs
@@ -331,7 +344,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                              horizontalOffset: shouldShowFile ? -18 : 0)
         switch liveState {
         case .recording:
-            pill.show(.recording)
+            pill.show(.recording(partial: livePartial))
         case .transcribing:
             pill.show(.transcribing(fileName: nil))
         case .idle:
@@ -359,6 +372,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         default:
             break
         }
+        if config.engine == "apple" {
+            startDictationNative()
+            return
+        }
         liveCancelled = false
         liveState = .recording
         showRecording()
@@ -376,8 +393,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func stopDictation() {
-        guard liveState == .recording, let url = recorder.currentURL else { return }
+        guard liveState == .recording else { return }
         if liveCancelled { return }
+        if config.engine == "apple" { stopDictationNative(); return }
+        guard let url = recorder.currentURL else { return }
         liveState = .transcribing
         showTranscribing()
         recorder.stop()
@@ -392,6 +411,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         liveTask?.cancel()
         liveTask = nil
         stopEscapeMonitoring()
+
+        if nativeActive {
+            nativeActive = false
+            nativeEngine?.cancel()
+            liveState = .idle
+            showIdleIcon()
+            pill.cancel()
+            NSSound(named: NSSound.Name("Blow"))?.play()
+            refreshHUD()
+            return
+        }
 
         if let url = recorder.currentURL {
             if recorder.isRecording { recorder.stop() }
@@ -457,6 +487,154 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                       message: error.localizedDescription)
                 }
                 try? FileManager.default.removeItem(at: url)
+            }
+        }
+    }
+
+    // MARK: - Native dictation lane (engine == "apple", design §3)
+
+    /// Build the native engine + LocaleManager only when routed. The mlx path
+    /// never touches the Speech stack (cutover safety).
+    private func setupNativeLaneIfRouted() {
+        guard config.engine == "apple" else { return }
+        let localeManager = LocaleManager()
+        let eng = SpeechDictationEngine(localeManager: localeManager)
+        eng.onPartial = { [weak self] text in self?.handleLivePartial(text) }
+        eng.onNotice = { [weak self] message in self?.handleLiveNotice(message) }
+        eng.onFailure = { [weak self] message in self?.handleNativeFailure(message) }
+        nativeEngine = eng
+        Task { await localeManager.bootstrap() }   // AC-L1 cache fill + reservations
+    }
+
+    private func startDictationNative() {
+        liveCancelled = false
+        livePartial = nil
+        Task {
+            // np-G1 ordering: mic first (guarded above), speech second.
+            guard await SpeechPermissions.ensureAuthorizedForDictation() else {
+                presentAlert(title: "Speech Recognition Needed",
+                             message: "Allow Transcribe to use speech recognition in System Settings, then dictate again.",
+                             actionTitle: "Open System Settings",
+                             action: { NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition")!) })
+                return
+            }
+            do {
+                try nativeEngine?.start(localeSetting: config.locale)
+                nativeActive = true
+                liveState = .recording
+                showRecording()
+                startEscapeMonitoring()
+                NSSound(named: NSSound.Name("Pop"))?.play()
+            } catch {
+                liveState = .idle
+                showIdleIcon()
+                refreshHUD()
+                presentAlert(title: "Can't Record", message: error.localizedDescription)
+            }
+        }
+    }
+
+    private func stopDictationNative() {
+        guard let eng = nativeEngine else { return }
+        liveState = .transcribing
+        showTranscribing()
+        NSSound(named: NSSound.Name("Tink"))?.play()
+        let stopAt = Date()
+        signposter.emitEvent("dictation.stopRequested")
+        Task {
+            let result = await eng.finish()
+            if let m = eng.lastMetrics {
+                NSLog("DICTATION firstPartial=%@ms finalize=%.0fms drain=%.0fms stopToText=%.0fms wall(stop→paste-entry branch)=%@",
+                      m.firstPartialMs.map { String(format: "%.0f", $0) } ?? "-",
+                      m.finalizeMs ?? -1, m.drainMs ?? -1,
+                      m.stopToTextMs ?? -1,
+                      String(format: "%.0f", Date().timeIntervalSince(stopAt) * 1000))
+            }
+            guard !liveCancelled else {
+                nativeActive = false
+                liveState = .idle
+                showIdleIcon()
+                refreshHUD()
+                return
+            }
+            switch result {
+            case .success(let raw):
+                let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+                if text.isEmpty {
+                    showIdleIcon()
+                    pill.show(.empty)
+                } else if AXIsProcessTrusted() {
+                    signposter.emitEvent("dictation.pasteEntry")   // AC-D1 endpoint
+                    Paste.paste(text)
+                    Paste.clearIfUnchanged(text)
+                    flashResult()
+                } else {
+                    // Accessibility missing: leave the text on the pasteboard
+                    // so Cmd+V still works manually (0.6.0 parity).
+                    signposter.emitEvent("dictation.pasteEntry")
+                    Paste.copyOnly(text)
+                    Paste.clearIfUnchanged(text)
+                    flashResult()
+                }
+                archiveNativeSession(transcript: text)
+            case .failure(let error):
+                showIdleIcon()
+                pill.show(.error("Failed"))
+                presentAlert(title: "Transcription Failed",
+                             message: error.localizedDescription)
+            }
+            nativeActive = false
+            liveState = .idle
+            stopEscapeMonitoring()
+            showIdleIcon()
+            refreshHUD()
+        }
+    }
+
+    /// Streaming partials → HUD label (≤10 Hz deduped upstream, design §10).
+    private func handleLivePartial(_ text: String?) {
+        livePartial = text
+        if liveState == .recording { pill.show(.recording(partial: text)) }
+    }
+
+    /// Friendly mid-session status reuses the live-label slot ("Downloading
+    /// Italiano…"); real partials overwrite it as soon as they flow.
+    private func handleLiveNotice(_ message: String) {
+        if liveState == .recording { pill.show(.recording(partial: message)) }
+    }
+
+    /// Engine already cleaned itself; tear down session UI visibly (AC-D4:
+    /// never a silent wait).
+    private func handleNativeFailure(_ message: String) {
+        nativeActive = false
+        liveState = .idle
+        stopEscapeMonitoring()
+        showIdleIcon()
+        refreshHUD()
+        pill.show(.error(message))
+        presentAlert(title: "Dictation Unavailable", message: message)
+    }
+
+    /// Design §3.10: WAV archive happens OFF the latency path, after paste.
+    private func archiveNativeSession(transcript: String) {
+        guard let audio = nativeEngine?.lastSessionAudio else { return }
+        let localeID = nativeEngine?.lastChosenLaneID ?? ""
+        let keep = config.keepTranscripts
+        // SessionStore is main-actor isolated; this Task runs AFTER paste has
+        // fired, so the archive stays off the hotkey-up latency path (§3.10).
+        let store = SessionStore()
+        Task(priority: .utility) {
+            let tmp = FileManager.default.temporaryDirectory
+                .appendingPathComponent("transcribe_native_\(UUID().uuidString).wav")
+            do {
+                try WavFile.data(pcm: audio.pcm, sampleRate: audio.sampleRate,
+                                 channels: audio.channels).write(to: tmp)
+                store.saveBestEffort(recording: tmp, transcript: transcript,
+                                     model: "apple/\(localeID)", language: localeID,
+                                     source: "live", keepTranscripts: keep)
+                try? FileManager.default.removeItem(at: tmp)
+            } catch {
+                NSLog("Transcribe: session archive skipped (\(error.localizedDescription))")
             }
         }
     }
