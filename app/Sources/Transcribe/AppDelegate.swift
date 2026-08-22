@@ -227,11 +227,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         refreshHUD()
     }
 
-    private func flashResult(_ text: String) {
+    private func flashResult() {
         statusItem.button?.contentTintColor = fileHUDVisible ? .systemOrange : nil
         pill.setPresentation(compact: fileHUDVisible,
                              horizontalOffset: fileHUDVisible ? -18 : 0)
-        pill.show(.result(text))
+        pill.show(.success)
     }
 
     // MARK: - Setup & state rows
@@ -308,7 +308,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                  circle: concurrent,
                                  horizontalOffset: concurrent ? 63 : 0)
         if let file = activeFileURL {
-            filePill.show(.fileTranscribing(file.lastPathComponent))
+            filePill.show(.transcribing(fileName: file.lastPathComponent))
         } else if let status = pendingFileStatuses.first {
             pendingFileStatuses.removeFirst()
             filePill.show(status)
@@ -322,7 +322,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .recording:
             pill.show(.recording)
         case .transcribing:
-            pill.show(.transcribing)
+            pill.show(.transcribing(fileName: nil))
         case .idle:
             pill.show(.hidden)
         }
@@ -433,13 +433,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     } else if AXIsProcessTrusted() {
                         Paste.paste(text)
                         Paste.clearIfUnchanged(text)
-                        self.flashResult(text)
+                        self.flashResult()
                     } else {
                         // Accessibility missing: leave the text on the pasteboard
                         // so Cmd+V still works manually.
                         Paste.copyOnly(text)
                         Paste.clearIfUnchanged(text)
-                        self.flashResult(text)
+                        self.flashResult()
                     }
                 case .failure(let error):
                     self.showIdleIcon()
@@ -521,7 +521,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         return
                     }
                 }
-                pendingFileStatuses.append(.fileResult(url.lastPathComponent))
+                pendingFileStatuses.append(.fileSuccess)
             }
         case .failure:
             pendingFileStatuses.append(.error("File failed"))
