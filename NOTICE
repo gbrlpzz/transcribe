@@ -1,5 +1,0 @@
-Transcribe bundles no third-party code. It depends on the following open-source projects at runtime:
-
-- mlx-whisper-diet (MIT) — https://github.com/gbrlpzz/mlx-whisper-diet — the engine's Whisper runtime: our slim drop-in fork of mlx-whisper 0.4.3 (same `mlx_whisper` module, torch/numba/scipy removed; see that repo's NOTICE for the modification list)
-- mlx-whisper (MIT) — https://github.com/ml-explore/mlx-examples — upstream Apple Silicon Whisper inference via MLX
-- Whisper models are from OpenAI (MIT license on the model weights repo, https://github.com/openai/whisper) via mlx-community conversions.
