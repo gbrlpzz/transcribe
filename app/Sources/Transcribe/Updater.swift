@@ -121,15 +121,7 @@ enum Updater {
     private static func findApp(in dir: URL) -> URL? {
         let fm = FileManager.default
         guard let entries = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else { return nil }
-        return entries.first { $0.pathExtension == "app" }
-            ?? entries.compactMap(findAppRecursive).first
-    }
-
-    private static func findAppRecursive(dir: URL) -> URL? {
-        let fm = FileManager.default
-        guard let entries = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else { return nil }
-        for entry in entries where entry.pathExtension == "app" { return entry }
-        return entries.compactMap(findAppRecursive).first
+        return entries.first { $0.pathExtension == "app" } ?? entries.compactMap(findApp).first
     }
 
     /// Detached helper: waits for this process to exit, swaps the bundle, and relaunches.
