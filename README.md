@@ -1,81 +1,51 @@
-# Transcribe Leggerissimo
+# Transcribe
 
-Dictation and file transcription for macOS 26, on Apple's on-device speech stack.
-One small app. Nothing to install.
+Dictation and file transcription for macOS 26, on Apple's on-device speech
+stack. 565,152 bytes. No models, no Python, no ffmpeg, no server.
 
-| Measured on an M4, warm | |
-|---|---|
-| Paste fires after key-up | **58–105 ms** (p50) |
-| 4-minute audio file → transcript | **4,200 ms** — RTF **0.0176×** |
-| Entire app | **~565 KB** |
-| Download | **one ~240 KB zip** |
-| Setup after drag-to-Applications | **none** |
+Measured on an M4, warm: paste fires 58–105 ms after key-up (p50 58 ms). A
+4-minute file transcribes in 4,200 ms — RTF 0.0176×.
 
-No models. No Python. No ffmpeg. No server.
+## Use
 
-## How it works
-
-- Press **^Space** (configurable), speak, press again — the transcript pastes into whatever
-  app you are in. The recognizer runs while you speak, so only ~60–105 ms of work remains
-  at key-up.
-- Drop any WAV/AIFF/CAF/M4A file on the menu-bar mic (or use the Finder Quick Action) and a
-  `<file>.md` transcript appears next to it.
-- Language is set once in the menu (**Language**): Auto or any language this Mac's speech
-  stack offers — the list comes straight from macOS, nothing hard-coded. Languages not yet
-  on disk install on first selection. Auto runs two recognizers on your audio and keeps the
-  one that commits text (~4 ms cost).
-- Sessions land in `~/Library/Application Support/transcribe/sessions/` — live recordings for
-  1 hour, file transcripts for 7 days, swept automatically.
-
-## Requirements
-
-| | |
-|---|---|
-| Mac | Apple Silicon |
-| macOS | 26 or newer |
-| Downloads | none — no models, no Python, no ffmpeg |
+- **^Space** (configurable): dictate; the transcript pastes into the focused
+  app. The HUD tetrahedron spins while recording, tumbles reversed while
+  transcribing, locks still when done. Click or Esc cancels.
+- Drop a WAV/AIFF/CAF/M4A on the menu-bar mic (or Finder Quick Action): a
+  `<file>.md` transcript appears beside it.
+- **Language** menu: Auto, or any language this Mac's speech stack offers.
+- Sessions land in `~/Library/Application Support/transcribe/sessions/` —
+  live recordings 1 h, file transcripts 7 days, swept automatically.
 
 ## Install
 
-1. Download `Transcribe-<version>.zip` from [Releases](https://github.com/gbrlpzz/transcribe/releases).
-2. Unzip, drag **Transcribe.app** into `/Applications`, open it.
-3. Approve Microphone and Speech Recognition once when asked.
+Unzip, drag `Transcribe.app` to /Applications. Apple Silicon, macOS 26+.
+Releases: https://github.com/gbrlpzz/transcribe/releases
 
 ## CLI
 
-The app binary *is* the CLI. Optional, so agents and scripts can call it by name:
+The app binary is the CLI:
 
-```bash
-sudo ln -sf /Applications/Transcribe.app/Contents/MacOS/Transcribe /usr/local/bin/transcribe
+    sudo ln -sf /Applications/Transcribe.app/Contents/MacOS/Transcribe /usr/local/bin/transcribe
 
-transcribe file notes.m4a --json   # {"file","text","language","elapsed_ms","md_path"}
-transcribe languages               # readiness matrix
-transcribe languages --install it-IT
-transcribe doctor --json
-```
+    transcribe file notes.m4a --json   # {"file","text","language","elapsed_ms","md_path"}
+    transcribe languages               # readiness matrix
+    transcribe languages --install it-IT
+    transcribe doctor --json
 
-Exit codes: `0` ok · `2` usage · `3` unreadable file · `4` language not ready · `5` transcription failed.
-There is no server and no port.
+Exit codes: 0 ok · 2 usage · 3 unreadable file · 4 language not ready · 5 failed.
 
-## Agent skill
+## Build
 
-`skill/transcribe/SKILL.md` is a plain markdown skill wrapping the CLI — copy-paste usable by
-any agent. Install with `bash scripts/install-skill.sh`.
-
-## Build from source
-
-```bash
-make app        # → app/dist/Transcribe.app
-make dist       # → release zip for a GitHub release
-make test       # 47-case executable battery + dictbench latency harness (cd app)
-```
+    make app     # app/dist/Transcribe.app
+    make dist    # release zip
+    make test    # 47-case battery + dictbench latency harness
 
 ## Privacy
 
-On-device only. No analytics, no network except the manual update check. Details:
-[docs/PRIVACY.md](docs/PRIVACY.md). Behavior notes on Apple's speech APIs:
-[docs/APPLE-SPEECH-API-NOTES.md](docs/APPLE-SPEECH-API-NOTES.md).
+On-device. No analytics; network only for the manual update check.
+docs/PRIVACY.md · docs/APPLE-SPEECH-API-NOTES.md · docs/TROUBLESHOOTING.md
 
 ## License
 
-Apache-2.0 — see [LICENSE](LICENSE).
+Apache-2.0 — see LICENSE.
