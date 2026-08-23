@@ -1,29 +1,21 @@
 # Changelog
 
-## 1.1.0 — Solid HUD
+## 1.2.1 — Settle fix
 
-- The capsule pill is gone. The HUD is now a single white translucent
-  **tetrahedron** floating below the notch, and behavior is the language:
-  recording spins gently about one axis, transcribing tumbles reversed and
-  faster about another, done eases into a canonical rest pose and is still.
-  Hairline edges, faint bloom, diffused contact shadow. Click still cancels,
-  Esc still works, all flash timings unchanged.
-- Empty/failure flashes removed: the HUD stands down silently and the existing
-  alert path carries failure news. Success is the only flash.
-- Language menu lists every locale macOS's speech stack offers (nothing
-  hard-coded); startup warms only the system language.
-- Multiple HUDs distribute symmetrically around the notch center.
-- HUD + solid code: 810 → 418 lines; engine input-meter plumbing deleted;
-  vector-only rendering — no assets, no new frameworks.
+- The done-pose settle is a fixed 0.8 s easeOutCubic that always completes
+  (the 1.2.0 exponential decay crawled and read as never settling).
+- The success flash holds 2.6 s — full settle plus a still moment, instead
+  of dismissing the solid mid-settle at 1.6 s.
 
 ## 1.2.0 — One solid, nothing extra
 
 - One tetrahedron, three behaviors: recording spins gently about one axis,
   transcribing tumbles reversed and faster about another, done eases into the
-  canonical diamond rest pose (~2 s settle) and is still.
-- HUD doubled in size; menu trimmed to Language / About / Quit (the hotkey is
-  the dictate path, the Finder Quick Action is the file path, updates are
-  automatic).
+  canonical diamond rest pose and is still.
+- HUD doubled in size; multiple HUDs distribute symmetrically around the
+  notch center.
+- Menu trimmed to Language / About / Quit: the hotkey is the dictate path,
+  the Finder Quick Action is the file path, updates are automatic.
 - **Sessions removed.** A dictation lives in the clipboard; a file transcript
   lives in the `.md` beside the audio. No WAV archive, no metadata, no TTL
   sweeper — the app forgets everything else.
@@ -36,16 +28,25 @@
 - Install-event machinery, lane-id tracking, and retention config deleted.
 - Battery: 32 cases + live smoke.
 
-- Language menu now lists every locale macOS's speech stack offers, straight from
-  `SpeechTranscriber.supportedLocales` — the hard-coded en/it/de/es shipped table is gone.
-  Startup warms only your system language instead of four fixed ones.
-- Removed dead LocaleManager surface (`markActive`/`markInactive`, `releaseReservation`,
-  `cancelInstall`, `readyLocales`, `currentReservations`) — zero production callers.
-- Repo: legacy Python build/test artifacts and three unreferenced root icons removed;
-  `.gitignore` reduced to native-only rules; release zip now zlib level 9.
+## 1.1.0 — Solid HUD
+
+- The capsule pill is gone. The HUD is now a white translucent solid floating
+  below the notch. Hairline edges, faint bloom, diffused contact shadow.
+  Click still cancels, Esc still works, all flash timings unchanged.
+- Empty/failure flashes removed: the HUD stands down silently and the existing
+  alert path carries failure news. Success is the only flash.
+- Language menu lists every locale macOS's speech stack offers (nothing
+  hard-coded); startup warms only the system language.
+- HUD + solid code: 810 → 418 lines; engine input-meter plumbing deleted;
+  vector-only rendering — no assets, no new frameworks.
+- Dead LocaleManager surface removed (`markActive`/`markInactive`,
+  `releaseReservation`, `cancelInstall`, `readyLocales`, `currentReservations`)
+  — zero production callers.
+- Repo: legacy Python build/test artifacts and three unreferenced root icons
+  removed; `.gitignore` reduced to native-only rules; release zip now zlib
+  level 9.
 - Battery: 47 cases + live smoke (was 50); `make test` added.
 
-## 1.0.0 — Leggerissimo
 ## 1.0.0 — Leggerissimo
 
 Native rebuild on Apple's on-device speech stack (macOS 26 `SpeechAnalyzer`). The Python
