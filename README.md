@@ -47,4 +47,4 @@ docs/PRIVACY.md · docs/APPLE-SPEECH-API-NOTES.md · docs/TROUBLESHOOTING.md
 
 ## License
 
-Apache-2.0 — see LICENSE.
+MIT — see LICENSE.
