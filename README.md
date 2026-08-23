@@ -1,7 +1,7 @@
 # Transcribe
 
 Dictation and file transcription for macOS 26, on Apple's on-device speech
-stack. 565,152 bytes. No models, no Python, no ffmpeg, no server.
+stack. 447,280 bytes. No models, no Python, no ffmpeg, no server.
 
 Measured on an M4, warm: paste fires 58–105 ms after key-up (p50 58 ms). A
 4-minute file transcribes in 4,200 ms — RTF 0.0176×.
