@@ -7,8 +7,8 @@ One small app. Nothing to install.
 |---|---|
 | Paste fires after key-up | **58–105 ms** (p50) |
 | 4-minute audio file → transcript | **4,200 ms** — RTF **0.0176×** |
-| Entire app | **612 KB** |
-| Download | **one ~250 KB zip** |
+| Entire app | **~600 KB** |
+| Download | **one ~240 KB zip** |
 | Setup after drag-to-Applications | **none** |
 
 No models. No Python. No ffmpeg. No server.
@@ -20,8 +20,10 @@ No models. No Python. No ffmpeg. No server.
   at key-up.
 - Drop any WAV/AIFF/CAF/M4A file on the menu-bar mic (or use the Finder Quick Action) and a
   `<file>.md` transcript appears next to it.
-- Language is set once in the menu (**Language**): Auto, en, it, de, es regional variants.
-  Auto runs two recognizers on your audio and keeps the one that commits text (~4 ms cost).
+- Language is set once in the menu (**Language**): Auto or any language this Mac's speech
+  stack offers — the list comes straight from macOS, nothing hard-coded. Languages not yet
+  on disk install on first selection. Auto runs two recognizers on your audio and keeps the
+  one that commits text (~4 ms cost).
 - Sessions land in `~/Library/Application Support/transcribe/sessions/` — live recordings for
   1 hour, file transcripts for 7 days, swept automatically.
 
@@ -65,7 +67,7 @@ any agent. Install with `bash scripts/install-skill.sh`.
 ```bash
 make app        # → app/dist/Transcribe.app
 make dist       # → release zip for a GitHub release
-swift test      # cd app; 50-case executable battery + dictbench latency harness
+make test       # 47-case executable battery + dictbench latency harness (cd app)
 ```
 
 ## Privacy

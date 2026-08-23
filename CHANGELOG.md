@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased — leaner
+
+- Language menu now lists every locale macOS's speech stack offers, straight from
+  `SpeechTranscriber.supportedLocales` — the hard-coded en/it/de/es shipped table is gone.
+  Startup warms only your system language instead of four fixed ones.
+- Removed dead LocaleManager surface (`markActive`/`markInactive`, `releaseReservation`,
+  `cancelInstall`, `readyLocales`, `currentReservations`) — zero production callers.
+- Repo: legacy Python build/test artifacts and three unreferenced root icons removed;
+  `.gitignore` reduced to native-only rules; release zip now zlib level 9.
+- Battery: 47 cases + live smoke (was 50); `make test` added.
+
+## 1.0.0 — Leggerissimo
 ## 1.0.0 — Leggerissimo
 
 Native rebuild on Apple's on-device speech stack (macOS 26 `SpeechAnalyzer`). The Python
