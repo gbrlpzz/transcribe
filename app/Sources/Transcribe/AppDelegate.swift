@@ -61,8 +61,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func setupPill() {
-        // One animation clock: the waveform reads the native input meter directly.
-        pill.levelProvider = { [weak self] in self?.nativeEngine.levelProvider() ?? 0 }
         pill.onCancel = { [weak self] _ in
             self?.cancelDictation()
         }
@@ -437,7 +435,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
                 if text.isEmpty {
                     showIdleIcon()
-                    pill.show(.empty)
+                    pill.show(.hidden)
                 } else if AXIsProcessTrusted() {
                     signposter.emitEvent("dictation.pasteEntry")   // AC-D1 endpoint
                     Paste.paste(text)
@@ -454,7 +452,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 archiveNativeSession(transcript: text)
             case .failure(let error):
                 showIdleIcon()
-                pill.show(.error("Failed"))
+                pill.show(.hidden)
                 presentAlert(title: "Transcription Failed",
                              message: error.localizedDescription)
             }
@@ -469,7 +467,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         stopEscapeMonitoring()
         showIdleIcon()
         refreshHUD()
-        pill.show(.error(message))
+        pill.show(.hidden)
         presentAlert(title: "Dictation Unavailable", message: message)
     }
 
@@ -499,7 +497,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func enqueueFile(_ url: URL) {
         guard url.isFileURL, FileManager.default.fileExists(atPath: url.path) else {
-            pendingFileStatuses.append(.error("File not found"))
             refreshHUD()
             return
         }
@@ -552,9 +549,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let output = try await FileTranscriber.transcribe(url: url, locale: locale)
             guard activeFileURL == url, fileRequestID == requestID, !Task.isCancelled else { return }
             let text = output.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            if text.isEmpty {
-                pendingFileStatuses.append(.empty)
-            } else {
+            if !text.isEmpty {
                 let md = try sessionStore.writeMarkdown(audioPath: url, text: output.text)
                 sessionStore.saveBestEffort(recording: nil, transcript: output.text,
                                             model: "apple/\(output.language)",
@@ -567,7 +562,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         } catch {
             guard activeFileURL == url, fileRequestID == requestID else { return }
-            pendingFileStatuses.append(.error("File failed"))
             NSLog("Transcribe: file failed %@ — %@", url.path, String(describing: error))
         }
         guard activeFileURL == url, fileRequestID == requestID else { return }

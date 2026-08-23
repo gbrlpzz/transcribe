@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased — solid HUD
+
+- The capsule pill is gone. The HUD is now the platonic solid itself, floating
+  below the notch: **tetrahedron records, cube transcribes, octahedron
+  confirms** — three solids, three stages, same unhurried precessing spin.
+  White translucent facets, hairline edges, faint bloom, diffused contact
+  shadow. Click still cancels, Esc still works, all flash timings unchanged.
+- Empty/failure flashes removed: the HUD stands down silently and the existing
+  alert path carries failure news. Success is the only flash.
+- HUD code 810 → 247 lines; engine input-meter plumbing deleted; vector-only
+  rendering — no assets, no new frameworks.
+
 ## Unreleased — leaner
 
 - Language menu now lists every locale macOS's speech stack offers, straight from

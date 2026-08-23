@@ -433,3 +433,25 @@ a config flip, not a rebuild. The cutover commit (default → `"apple"`) happens
 only after gates green; the deletions ledger (§11) executes in W4 after the
 owner's live test. EngineClient/Recorder stay compiled-but-unrouted between
 cutover and deletion.
+
+## Solid HUD (deliberate HIG deviation, owner-approved 2026-08-23)
+
+The HUD is not an Apple-language capsule. It is the platonic solid itself,
+floating below the notch: tetrahedron = recording, cube = transcribing,
+octahedron = success. Rationale: brand identity (archeo-futurist, alien) with
+a *smaller* implementation than the HIG capsule it replaces — 447 lines of
+vector-only CoreAnimation (DictationSolid + DictationPill) versus 810, no
+assets, no blur compositing, no new frameworks. Deviations from HIG and their
+compensations:
+
+- No capsule background: separation comes from a diffused radial contact
+  shadow (same softness language as the panel shadow), verified on light and
+  dark desktops.
+- No text labels during stages: geometry carries state (three solids cannot
+  be confused); failure states stand the HUD down silently and route through
+  the existing alert path, so no information is lost.
+- Constant precessing spin (two incommensurate axes, ~18 s/revolution):
+  deterministic, no physics, no reactivity required.
+- Timings preserved verbatim from the capsule HUD: 0.28 s appear spring,
+  0.20/0.26 s dismiss glides, 1.6 s success flash.
+
