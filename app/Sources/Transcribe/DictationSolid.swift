@@ -109,7 +109,7 @@ final class DictationSolidView: NSView {
         if lastTick > 0 {
             let dt = Float(t - lastTick)
             if locking {
-                phase += (lockTarget - phase) * min(1, dt * 1.5)
+                phase += (lockTarget - phase) * min(1, dt * 2.2)
                 if abs(lockTarget - phase) < 0.005 {
                     phase = lockTarget
                     locking = false
