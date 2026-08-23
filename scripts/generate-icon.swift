@@ -1,8 +1,8 @@
 import AppKit
 
 // Renders the Transcribe app icon: white squircle + the tetrahedron from
-// the HUD in its pyramid rest pose — white on white, centered, with a
-// contact shadow. The app icon IS the interface, frozen.
+// the HUD, vertex toward the viewer at 30° roll — white on white, dead
+// center, no shadow. The app icon IS the interface, frozen.
 // Usage: swift scripts/generate-icon.swift <output-dir>
 
 import simd
@@ -22,28 +22,27 @@ func drawIcon(_ size: CGFloat) {
     rim.lineWidth = max(1, size * 0.005)
     rim.stroke()
 
-    // Contact shadow under the solid, posterized to three flat steps so the
-    // PNG stays tiny — same 3-stop falloff as the HUD's radial shadow.
-    for (w, h, a) in [(0.60, 0.12, CGFloat(0.16)), (0.48, 0.09, 0.20), (0.34, 0.06, 0.24)] {
-        NSColor.black.withAlphaComponent(a).setFill()
-        NSBezierPath(ovalIn: NSRect(x: size * (0.5 - w / 2), y: size * 0.20,
-                                    width: size * w, height: size * h)).fill()
-    }
 
     // The tetrahedron at rest (tilt only, no spin) — HUD material.
-    let tilt = simd_float4x4(simd_quatf(
-        angle: Float(0.55), axis: simd_normalize(SIMD3<Float>(1, 0.12, 0.18))))
-    let spin = simd_float4x4(simd_quatf(
-        angle: Float(1.2), axis: simd_normalize(SIMD3<Float>(0.22, 1, 0.14))))
+    // Vertex (1,1,1) pointed at the viewer, rolled 30°: all three faces
+    // radiate from a central apex inside an upward triangle — maximum
+    // form complexity, perfectly symmetric.
     let v: [SIMD3<Float>] = [
         SIMD3(1, 1, 1), SIMD3(1, -1, -1), SIMD3(-1, 1, -1), SIMD3(-1, -1, 1),
     ].map { $0 / simd_length($0) }
     let faces = [[0, 1, 2], [0, 3, 1], [0, 2, 3], [1, 3, 2]]
 
-    let r = size * 0.34
-    let center = CGPoint(x: size * 0.5, y: size * 0.52)
+    let a = simd_normalize(SIMD3<Float>(1, 1, 1))
+    let zAxis = SIMD3<Float>(0, 0, 1)
+    let toViewer = simd_float4x4(simd_quatf(
+        angle: acos(max(-1, min(1, simd_dot(a, zAxis)))),
+        axis: simd_normalize(simd_cross(a, zAxis))))
+    let roll = simd_float4x4(simd_quatf(
+        angle: Float.pi / 6, axis: zAxis))
+    let model = simd_mul(roll, toViewer)
+    let r = size * 0.36
+    let center = CGPoint(x: size * 0.5, y: size * 0.5)
     var painted: [(path: NSBezierPath, z: Float)] = []
-    let model = simd_mul(spin, tilt)
     for f in faces {
         var pts: [CGPoint] = []
         var zsum: Float = 0
