@@ -52,7 +52,7 @@ final class DictationSolidView: NSView {
     private var lockFrom: Float = 0
     private var lockStart: TimeInterval = 0
     /// Fixed-duration settle: guaranteed to finish (no asymptotic crawl).
-    private let lockDuration: TimeInterval = 1.2
+    private let lockDuration: TimeInterval = 0.8
     private var lastTick: TimeInterval = 0
     private lazy var clock: Timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
         self?.tick()

@@ -160,8 +160,8 @@ final class DictationPill: NSPanel {
                                   ?? "Click to cancel transcription (or press Esc)",
                               autoDismissAfter: nil)
         case .flash(let flash):
-            // Settle takes 1.2 s; hold the still pose a moment after.
-            let delay: TimeInterval? = [.success: 3.0, .fileSuccess: 3.0][flash.kind]
+            // Settle takes 0.8 s; hold the still pose a moment after.
+            let delay: TimeInterval? = [.success: 2.6, .fileSuccess: 2.6][flash.kind]
             return Appearance(stage: .success, tooltip: nil, autoDismissAfter: delay)
         case .cancelled, .hidden:
             return nil
