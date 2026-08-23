@@ -13,7 +13,7 @@
 - Language menu lists every locale macOS's speech stack offers (nothing
   hard-coded); startup warms only the system language.
 - Multiple HUDs distribute symmetrically around the notch center.
-- HUD + solid code: 810 → ~420 lines; engine input-meter plumbing deleted;
+- HUD + solid code: 810 → 418 lines; engine input-meter plumbing deleted;
   vector-only rendering — no assets, no new frameworks.
 
 ## Unreleased — leaner
@@ -36,9 +36,9 @@ engine, HTTP server, uv toolchain, model downloads, and ffmpeg dependency are go
 Measured on the reference M4 (warm, p50 unless noted):
 
 - dictation stop→paste-ready 58 ms (en), 42 ms (de); auto dual-language 68 ms; p95 122 ms
-- file RTF 0.0175x cold / 0.0168x warm on a 240 s recording; AAC identical within noise
-- app bundle 0.6 MB (binary 601,904 B signed, icon 15,613 B); release zip ~252 KB
-- installed footprint: from ~1.5 GB (Python toolchain + models) to 0.6 MB
+- file RTF 0.0175x cold / 0.0168x warm on a 240,000 ms recording; AAC identical within noise
+- app bundle 621,567 B (binary 601,904 B signed, icon 15,613 B); release zip 256,394 B
+- installed footprint: from ~1.5 GB (Python toolchain + models) to 621,567 B
 - 50-case test battery green; live dual-lane, cancel-storm ×20, double-tap regression verified
 
 Added:
@@ -56,7 +56,7 @@ Changed:
 
 Removed:
 - Python package, pytest suite, pyproject/uv packaging, engine server, port key
-- model downloads and HF cache (~514 MB), ffmpeg requirement, engine skill plumbing
+- model downloads and HF cache (~538,968,064 B), ffmpeg requirement, engine skill plumbing
 
 ## 0.6.0 — diet engine + honesty pass (unreleased)
 
@@ -68,14 +68,14 @@ with their own isolated measurements.
 
 | Area | 0.5.0 | 0.6.0 | Delta |
 |---|---|---|---|
-| Tool install size | 1.02 GB | ~248 MB fresh venv (`du -sk`) | −76% |
-| Engine cold import (`import mlx_whisper`) | ~620–730 ms | ~122–142 ms steady | −~0.5 s |
+| Tool install size | 1,095,191,040 B | ~260,046,848 B fresh venv (`du -sk`) | −76% |
+| Engine cold import (`import mlx_whisper`) | ~620–730 ms | ~122–142 ms steady | −~500 ms |
 | Dictation fixed paste delay | +120 ms every utterance | kept after live testing showed synthetic Cmd+V races some apps' input handling | reliability first |
 | ffmpeg decodes per dictation utterance | 2 (~31 ms each) | 0 (PCM read in-process) | −~31–62 ms per utterance |
-| Short-utterance E2E (HTTP) | 1.02 s median | 1.07 s under 2x higher background load; unchanged within noise, minus the deleted paste delay and ffmpeg decodes | engine-side flat, app-side faster |
+| Short-utterance E2E (HTTP) | 1,020 ms median | 1,070 ms under 2x higher background load; unchanged within noise, minus the deleted paste delay and ffmpeg decodes | engine-side flat, app-side faster |
 | Language detection cost | ~59–61 ms (ffmpeg spawn + decode) | **19–22 ms** (in-process PCM) | ~3x |
-| Cold start to ready | 0.74 s | **0.43 s** | −42% |
-| Stop → warm restart | 0.41 s | **0.32 s** | −22% |
+| Cold start to ready | 740 ms | **430 ms** | −42% |
+| Stop → warm restart | 410 ms | **320 ms** | −22% |
 | Engine idle memory | 1.0 GB footprint (vmmap) | **0.91 GB** footprint / 87 MB RSS | better |
 | Dictate during file jobs | blocked (`engine busy` until the job ends) | utterance served from a temporary second model lane; lane auto-evicts when idle | parallel again |
 | Long-session stability | quality can drift after dozens of jobs in one process | engine quietly rebuilds its warm model every 40 transcriptions (~0.5 s, invisible) | bounded |
