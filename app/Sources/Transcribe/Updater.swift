@@ -1,16 +1,12 @@
 import AppKit
 import Foundation
 
-/// Minimal release checker/updater for github.com/gbrlpzz/transcribe.
-///
-/// A release is a Git tag whose assets include a zipped `Transcribe.app`
-/// (built by `make dist`). Checking compares the bundle's short version
-/// string with the latest tag; updating downloads the zip, swaps the bundle
-/// in /Applications, and relaunches.
+/// Lean full-auto updater: on launch (staggered 5 s) the app checks GitHub
+/// for a newer release; if one exists it downloads the zip, swaps the bundle
+/// via a detached helper, and relaunches. Silent — failures NSLog and the
+/// app simply keeps running. The menu item forces the same check.
 enum Updater {
     static let repo = "gbrlpzz/transcribe"
-
-    // MARK: - Version
 
     static var currentVersion: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
@@ -44,11 +40,21 @@ enum Updater {
         }
     }
 
-    // MARK: - Check
+    /// Check once and auto-install if newer. Silent on failure and when
+    /// already current.
+    static func checkAndInstall() {
+        latestRelease { version, zip in
+            guard isNewer(version, than: currentVersion) else { return }
+            guard let zip else {
+                // No bundle attached yet: the release page is the update.
+                NSWorkspace.shared.open(URL(string: "https://github.com/\(repo)/releases")!)
+                return
+            }
+            performUpdate(zipURL: zip, version: version)
+        }
+    }
 
-    /// Fetches the latest published release. Completion yields
-    /// `(newestVersion, zipURL)` — `zipURL` nil when the release carries no app zip.
-    static func latestRelease(completion: @escaping (String, String?) -> Void) {
+    private static func latestRelease(completion: @escaping (String, String?) -> Void) {
         var req = URLRequest(url: URL(string: "https://api.github.com/repos/\(repo)/releases/latest")!)
         req.timeoutInterval = 15
         req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
@@ -64,31 +70,6 @@ enum Updater {
         }.resume()
     }
 
-    static func checkForUpdates() {
-        latestRelease { version, zip in
-            guard isNewer(version, than: currentVersion) else {
-                presentAlert(title: "Up to Date",
-                             message: "Transcribe \(currentVersion) is the newest release.")
-                return
-            }
-            guard let zip else {
-                // No bundle attached yet: send them to the release page.
-                NSWorkspace.shared.open(URL(string: "https://github.com/\(repo)/releases")!)
-                return
-            }
-            let alert = NSAlert()
-            alert.messageText = "Update to \(version)?"
-            alert.informativeText = "Transcribe \(version) is available (you have \(currentVersion)). The app restarts afterwards."
-            alert.addButton(withTitle: "Update")
-            alert.addButton(withTitle: "Later")
-            if alert.runModal() == .alertFirstButtonReturn {
-                performUpdate(zipURL: zip, version: version)
-            }
-        }
-    }
-
-    // MARK: - Update
-
     private static func performUpdate(zipURL: String, version: String) {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("transcribe-update-\(version)")
@@ -96,10 +77,7 @@ enum Updater {
         try? FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
 
         let task = URLSession.shared.downloadTask(with: URL(string: zipURL)!) { location, _, error in
-            guard let location else {
-                DispatchQueue.main.async { self.openReleasesPage() }
-                return
-            }
+            guard let location else { return }  // silent: try again next launch
             do {
                 let archive = tmp.appendingPathComponent("update.zip")
                 try FileManager.default.moveItem(at: location, to: archive)
@@ -107,12 +85,10 @@ enum Updater {
                 try Process.run(URL(fileURLWithPath: "/usr/bin/ditto"),
                                 arguments: ["-x", "-k", archive.path, staged.path])
                     .waitUntilExit()
-                let app = findApp(in: staged)
-                guard let app else { throw NSError(domain: "Transcribe", code: 10,
-                                                  userInfo: [NSLocalizedDescriptionKey: "no .app in release zip"]) }
+                guard let app = findApp(in: staged) else { return }
                 DispatchQueue.main.async { swapAndRelaunch(stagedApp: app, version: version) }
             } catch {
-                DispatchQueue.main.async { self.openReleasesPage() }
+                NSLog("Transcribe: auto-update failed (\(error.localizedDescription))")
             }
         }
         task.resume()
@@ -146,15 +122,4 @@ enum Updater {
         exit(0)
     }
 
-    private static func openReleasesPage() {
-        NSWorkspace.shared.open(URL(string: "https://github.com/\(repo)/releases")!)
-    }
-
-    private static func presentAlert(title: String, message: String) {
-        let alert = NSAlert()
-        alert.messageText = title
-        alert.informativeText = message
-        alert.addButton(withTitle: "OK")
-        alert.runModal()
-    }
 }

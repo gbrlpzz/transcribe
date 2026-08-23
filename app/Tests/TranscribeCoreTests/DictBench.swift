@@ -115,9 +115,8 @@ enum DictBench {
 
         let res = await engine.finish()          // hops to MainActor
         let metrics = await engine.lastMetrics
-        let lane = await engine.lastChosenLaneID
         var rec = BenchRecord(
-            run: run, requestedLocale: requestedLocale, chosenLane: lane,
+            run: run, requestedLocale: requestedLocale, chosenLane: nil,
             firstPartialMs: metrics?.firstPartialMs,
             finalizeMs: metrics?.finalizeMs,
             drainMs: metrics?.drainMs,

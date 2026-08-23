@@ -14,8 +14,8 @@ Measured on an M4, warm: paste fires 58–105 ms after key-up (p50 58 ms). A
 - Drop a WAV/AIFF/CAF/M4A on the menu-bar mic (or Finder Quick Action): a
   `<file>.md` transcript appears beside it.
 - **Language** menu: Auto, or any language this Mac's speech stack offers.
-- Sessions land in `~/Library/Application Support/transcribe/sessions/` —
-  live recordings 1 h, file transcripts 7 days, swept automatically.
+- **Nothing persists.** A dictation lives in your clipboard; a file
+  transcript lives in the `.md` beside the audio. The app forgets the rest.
 
 ## Install
 
@@ -24,22 +24,21 @@ Releases: https://github.com/gbrlpzz/transcribe/releases
 
 ## CLI
 
-The app binary is the CLI:
+The app binary is the CLI — one command:
 
     sudo ln -sf /Applications/Transcribe.app/Contents/MacOS/Transcribe /usr/local/bin/transcribe
 
-    transcribe file notes.m4a --json   # {"file","text","language","elapsed_ms","md_path"}
-    transcribe languages               # readiness matrix
-    transcribe languages --install it-IT
-    transcribe doctor --json
+    transcribe notes.m4a --json
+    # {"file","text","language","elapsed_ms","md_path"}
 
-Exit codes: 0 ok · 2 usage · 3 unreadable file · 4 language not ready · 5 failed.
+Missing language assets install automatically. Exit codes: 0 ok · 2 usage ·
+3 unreadable file · 4 language not ready · 5 failed.
 
 ## Build
 
     make app     # app/dist/Transcribe.app
     make dist    # release zip
-    make test    # 47-case battery + dictbench latency harness
+    make test    # 32-case battery + dictbench latency harness
 
 ## Privacy
 

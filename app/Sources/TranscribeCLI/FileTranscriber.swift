@@ -20,6 +20,18 @@ public enum FileTranscriber {
         public var elapsedMs: Int
     }
 
+    /// Write the transcript as `<basename>.md` beside the audio file
+    /// (`# <title>\n\n<text>\n`). The only persistence in the app: the
+    /// transcript lives beside the audio, and the app forgets everything else.
+    public static func writeMarkdown(audioPath: URL, text: String) throws -> URL {
+        let md = URL(fileURLWithPath: audioPath.path)
+            .deletingPathExtension().appendingPathExtension("md")
+        let title = md.deletingPathExtension().lastPathComponent
+        let body = "# \(title)\n\n\(text)\n"
+        try Data(body.utf8).write(to: md, options: [.atomic])
+        return md
+    }
+
     /// Transcribe one readable audio file. Throws CLIError.fileError when the
     /// container cannot be opened as audio; CLIError.transcriptionFailed when
     /// the pipeline fails after a clean open.
@@ -59,5 +71,30 @@ public enum FileTranscriber {
         _ = analyzer  // kept alive until the results sequence closes (ar-§3.7)
         let ms = Int(Double(DispatchTime.now().uptimeNanoseconds - started.uptimeNanoseconds) / 1e6)
         return Output(text: text, language: locale.identifier(.bcp47), elapsedMs: ms)
+    }
+}
+
+/// Shared CLI error surface: message + documented exit code.
+public enum CLIError: Error {
+    case usage(String)
+    case fileError(String)
+    case localeNotReady(String)
+    case transcriptionFailed(String)
+
+    public var errorMessage: String {
+        switch self {
+        case .usage(let m), .fileError(let m), .localeNotReady(let m),
+             .transcriptionFailed(let m):
+            return m
+        }
+    }
+
+    public var exitCode: Int32 {
+        switch self {
+        case .usage: return 2
+        case .fileError: return 3
+        case .localeNotReady: return 4
+        case .transcriptionFailed: return 5
+        }
     }
 }

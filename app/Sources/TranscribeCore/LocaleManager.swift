@@ -23,13 +23,10 @@ public final class LocaleManager {
 
     // Functional-truth cache — the ONLY readiness source.
     private var readiness: [Locale: Bool] = [:]
-    private var lastStatus: [Locale: AssetInventory.Status] = [:]
-    private var progressByKey: [Locale: Double] = [:]
     private var inFlight: Set<Locale> = []
     /// Reservations we own, oldest first (LRU). Primaries reserve at bootstrap,
     /// user-picked variants on demand (design §5.2).
     private(set) var reservations: [Locale] = []
-    private var continuations: [Locale: [UUID: AsyncStream<InstallEvent>.Continuation]] = [:]
 
     public init(service: any LocaleAssetService = SystemLocaleAssetService(),
                 stallTimeout: TimeInterval = 120,
@@ -65,7 +62,6 @@ public final class LocaleManager {
                 }
             }
             _ = await probeAndCache(p)
-            emit(p, readiness[p] == true ? .ready : .needsInstall)
         }
     }
 
@@ -77,20 +73,6 @@ public final class LocaleManager {
         return false
     }
 
-    /// Live event stream for one locale: current state snapshot first, then
-    /// every subsequent transition (progress percent drives HUD/menu, AC-L2).
-    public func installStatus(_ locale: Locale) async -> AsyncStream<InstallEvent> {
-        let key = await service.canonical(locale) ?? locale
-        return AsyncStream { continuation in
-            let token = UUID()
-            continuation.yield(snapshot(key))
-            continuation.onTermination = { [weak self] _ in
-                Task { @MainActor [weak self] in self?.removeContinuation(token, key) }
-            }
-            continuations[key, default: [:]][token] = continuation
-        }
-    }
-
     /// Full install flow (design §5.3): probe → route by status → installation
     /// request under a stall watchdog → re-probe before declaring installed.
     /// One retry for allocation errors: err 10 re-reserves; err 11 releases
@@ -98,7 +80,6 @@ public final class LocaleManager {
     public func ensureInstalled(_ locale: Locale) async throws {
         guard SpeechTranscriber.isAvailable else { throw LocaleManagerError.speechUnavailable }
         guard let key = await service.canonical(locale) else {
-            emit(locale, .unsupported)
             throw LocaleManagerError.unsupportedLocale
         }
         if isReady(key) { touch(key); return }
@@ -158,16 +139,12 @@ public final class LocaleManager {
     // MARK: - Install flow internals
 
     private func installOnce(_ key: Locale) async throws {
-        if await probeAndCache(key) { touch(key); emit(key, .ready); return }
         let st = await service.status(for: key)
-        lastStatus[key] = st
         if st == .unsupported {
-            emit(key, .unsupported)
             throw LocaleManagerError.unsupportedLocale  // ar-§6 15 → hide from picker
         }
         guard let request = try await service.installationRequest(for: key) else {
             // Design §5.3: nil request → treat as ready-if-formats-appear.
-            if await probeAndCache(key) { touch(key); emit(key, .ready); return }
             throw LocaleManagerError.notAvailableAfterInstall
         }
         // Best-effort reserve; allocation errors during install drive the retry path.
@@ -175,9 +152,6 @@ public final class LocaleManager {
         touch(key)
         inFlight.insert(key)
         defer { inFlight.remove(key) }
-        emit(key, .needsInstall)
-        progressByKey[key] = request.progressFraction()
-        emit(key, .downloading(progress: progressByKey[key] ?? 0))
         // UNSTRUCTURED task on purpose: np-G10 proved downloadAndInstall() can
         // hang ignoring cancellation. A structured group would hang at scope
         // exit awaiting the unkillable child; detached + explicit cancel +
@@ -191,20 +165,14 @@ public final class LocaleManager {
         do {
             try await watch(key, handle: handle, request: request, finished: finished)
         } catch is CancellationError {
-            emit(key, .needsInstall)
             throw CancellationError()
         } catch let e as LocaleManagerError {
-            if case .installTimedOut = e { emit(key, .timedOut) } else { emit(key, .failed(e)) }
             throw e
         }
         // Post-install functional probe BEFORE marking installed (design §5.3;
         // np-G4: inventory flags alone never gate).
-        lastStatus[key] = .installed
         if await probeAndCache(key) {
-            emit(key, .installed)
-            emit(key, .ready)
         } else {
-            emit(key, .failed(.notAvailableAfterInstall))
             throw LocaleManagerError.notAvailableAfterInstall
         }
     }
@@ -228,8 +196,6 @@ public final class LocaleManager {
             if f != last {
                 last = f
                 stalled = 0
-                progressByKey[key] = f
-                emit(key, .downloading(progress: f))
             } else {
                 stalled += pollInterval
                 if stalled >= stallTimeout {
@@ -282,25 +248,6 @@ public final class LocaleManager {
         list.contains { $0 == l || bcp47($0) == bcp47(l) }
     }
 
-    // MARK: - Event plumbing
-
-    private func snapshot(_ key: Locale) -> InstallEvent {
-        if readiness[key] == true { return .ready }
-        if lastStatus[key] == .unsupported { return .unsupported }
-        if inFlight.contains(key) { return .downloading(progress: progressByKey[key] ?? 0) }
-        return .needsInstall
-    }
-
-    private func emit(_ key: Locale, _ event: InstallEvent) {
-        guard let subs = continuations[key], !subs.isEmpty else { return }
-        for c in subs.values { c.yield(event) }
-    }
-
-    private func removeContinuation(_ token: UUID, _ key: Locale) {
-        continuations[key]?[token] = nil
-        if continuations[key]?.isEmpty == true { continuations[key] = nil }
-    }
-
     // MARK: - Error mapping (ar-§6 codes, measured rawValues)
 
     /// Maps Speech-domain errors onto our typed surface (ar-§6 codes).
@@ -332,18 +279,6 @@ public final class LocaleManager {
 }
 
 // MARK: - Events / errors
-
-/// Lifecycle of one locale's asset pipeline; maps AssetInventory.status states
-/// plus the mapped error outcomes. Progress is a 0…1 fraction (opaque units).
-public enum InstallEvent: Equatable, Sendable {
-    case ready
-    case needsInstall
-    case downloading(progress: Double)
-    case installed
-    case timedOut
-    case unsupported
-    case failed(LocaleManagerError)
-}
 
 public enum LocaleManagerError: Error, Equatable, Sendable {
     case speechUnavailable         // SpeechTranscriber.isAvailable == false

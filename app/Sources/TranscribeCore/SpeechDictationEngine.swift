@@ -117,11 +117,9 @@ final class IngestPipeline: @unchecked Sendable {
     private var converter: AVAudioConverter?
     private var continuation: AsyncStream<AnalyzerInput>.Continuation?
     private var pendingRaw: [AVAudioPCMBuffer] = []
-    private var pcm = Data()              // converted i16 bytes → session WAV
     private(set) var targetRate = 16000
     private(set) var targetChannels = 1
 
-    var pcmBytes: Data { lock.lock(); defer { lock.unlock() }; return pcm }
 
     var shape: (rate: Int, channels: Int) {
         lock.lock(); defer { lock.unlock() }; return (targetRate, targetChannels)
@@ -187,7 +185,7 @@ final class IngestPipeline: @unchecked Sendable {
 
     func reset() {
         lock.lock()
-        converter = nil; continuation = nil; pendingRaw = []; pcm = Data()
+        converter = nil; continuation = nil; pendingRaw = []
         lock.unlock()
     }
 
@@ -237,8 +235,6 @@ final class IngestPipeline: @unchecked Sendable {
         lock.lock()
         let abl = buffer.audioBufferList.pointee
         if let mData = abl.mBuffers.mData {
-            pcm.append(mData.assumingMemoryBound(to: UInt8.self),
-                       count: Int(abl.mBuffers.mDataByteSize))
         }
         lock.unlock()
         cont.yield(AnalyzerInput(buffer: buffer))
@@ -282,28 +278,6 @@ public enum LanePicker {
         guard let best = lanes.max(by: { $0.liveChars < $1.liveChars }),
               best.liveChars > 0 else { return nil }
         return best.id
-    }
-}
-
-/// Canonical 44-byte RIFF/WAVE header + i16 LE payload (session WAV, design §3.10).
-public enum WavFile {
-    public static func data(pcm: Data, sampleRate: Int, channels: Int) -> Data {
-        var d = Data(capacity: 44 + pcm.count)
-        func le32(_ v: UInt32) { withUnsafeBytes(of: v.littleEndian) { d.append(contentsOf: $0) } }
-        func le16(_ v: UInt16) { withUnsafeBytes(of: v.littleEndian) { d.append(contentsOf: $0) } }
-        d.append(contentsOf: Array("RIFF".utf8)); le32(UInt32(36 + pcm.count))
-        d.append(contentsOf: Array("WAVE".utf8))
-        d.append(contentsOf: Array("fmt ".utf8)); le32(16)
-        le16(1)                                   // PCM
-        le16(UInt16(channels))
-        le32(UInt32(sampleRate))
-        let blockAlign = channels * 2
-        le32(UInt32(sampleRate * blockAlign))     // byte rate
-        le16(UInt16(blockAlign))
-        le16(16)                                  // bits
-        d.append(contentsOf: Array("data".utf8)); le32(UInt32(pcm.count))
-        d.append(pcm)
-        return d
     }
 }
 
@@ -390,22 +364,12 @@ public final class SpeechDictationEngine {
         public var stopToTextMs: Double?    // stop request → chosen text ready
     }
     public private(set) var lastMetrics: Metrics?
-    public private(set) var lastChosenLaneID: String?
 
     public init(localeManager: LocaleManager? = nil,
                 audioSource: (any DictationAudioSource)? = nil) {
         self.localeManager = localeManager
         self.source = audioSource ?? MicrophoneTapSource()
     }
-
-    /// Converted i16 payload of the last finished session (session-WAV archive
-    /// input). Snapshotted at finalize, before cleanup recycles the pipeline.
-    public struct SessionAudio: Sendable {
-        public var pcm: Data
-        public var sampleRate: Int
-        public var channels: Int
-    }
-    public private(set) var lastSessionAudio: SessionAudio?
 
     // MARK: Session lifecycle
 
@@ -457,16 +421,12 @@ public final class SpeechDictationEngine {
         }
 
         let text = chosenText()
-        lastChosenLaneID = currentLaneID ?? lanes.first?.id
         let shape = ingest.shape
-        let audioBytes = ingest.pcmBytes
         var m = Metrics(firstPartialMs: nil, finalizeMs: finalizeMs,
                         drainMs: drainMs, stopToTextMs: sinceStop())
         if firstPartialAt > startedAt { m.firstPartialMs = (firstPartialAt - startedAt) * 1000 }
         lastMetrics = m
         signposter.emitEvent("dictation.finalized")
-        lastSessionAudio = audioBytes.isEmpty ? nil : SessionAudio(
-            pcm: audioBytes, sampleRate: shape.rate, channels: shape.channels)
         let error = sessionError ?? pendingSessionError
         cleanup()
         pendingSessionError = nil
@@ -695,7 +655,6 @@ public final class SpeechDictationEngine {
         firstPartialAt = 0
         stopRequestedAt = 0
         lastMetrics = nil
-        lastChosenLaneID = nil
     }
 
     private func displayLanguage(_ bcp47: String) -> String {

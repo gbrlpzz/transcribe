@@ -159,31 +159,16 @@ enum LocaleManagerTests {
 
     // MARK: Install success path (AC-L2)
 
-    static func ensureInstalledSuccessEventsAndProbeBeforeInstalled() async throws {
+    static func ensureInstalledProbesBeforeInstalled() async throws {
         let svc = makeService()
         let req = FakeRequest()
         req.install = {
             svc.setProbe("it-it", true)  // assets land → functional truth flips
-            req.setProgress(1.0)                             // progress moves → no stall
+            req.setProgress(1.0)         // progress moves → no stall
         }
         svc.requests["it-it"] = { req }
         let m = makeManager(svc)
-        let stream = await m.installStatus(it)
-        let collector = Task<[InstallEvent], Never> {
-            var out: [InstallEvent] = []
-            for await e in stream {
-                out.append(e)
-                if out.count >= 5 { break }
-            }
-            return out
-        }
         try await m.ensureInstalled(it)
-        let events = await collector.value
-        try requireEqual(events.first, InstallEvent.needsInstall, "snapshot first")
-        try require(events.contains(InstallEvent.installed), "installed event present")
-        try requireEqual(events.last, InstallEvent.ready, "terminal ready event")
-        try require(events.contains(.downloading(progress: 0.0)),
-                    "initial progress fraction emitted when install starts")
         try requireEqual(req.installAttempts, 1)
         try require(m.isReady(it), "post-install functional probe flips the cache")
     }
@@ -250,11 +235,11 @@ enum LocaleManagerTests {
         }
         svc.requests["it-it"] = { req }
         let m = makeManager(svc, stall: 0.3, poll: 0.05)
-        try await m.ensureInstalled(it)  // total ~0.48s > stall but moving
-        try require(m.isReady(it), "moving installs must not time out")
+        // Progress moving every ~120 ms must keep the 300 ms stall watchdog
+        // fed for the full ~360 ms install: no installTimedOut.
+        try await m.ensureInstalled(it)
+        try require(m.isReady(it), "moving progress survives the watchdog")
     }
-
-    // MARK: Error mapping + one-retry paths (ar-§6)
 
     static func err11ReleasesLRUAndRetriesOnce() async throws {
         let svc = makeService()
@@ -368,7 +353,7 @@ enum LocaleManagerTests {
             ("bootstrapReservesSystemPrimaryAndProbes", bootstrapReservesSystemPrimaryAndProbes),
             ("bootstrapAdoptsPreExistingReservation", bootstrapAdoptsPreExistingReservation),
             ("bootstrapSurvivesTightReserveBudget", bootstrapSurvivesTightReserveBudget),
-            ("ensureInstalledSuccessEventsAndProbeBeforeInstalled", ensureInstalledSuccessEventsAndProbeBeforeInstalled),
+            ("ensureInstalledProbesBeforeInstalled", ensureInstalledProbesBeforeInstalled),
             ("requestNilWithStillEmptyFormatsThrowsNotAvailable", requestNilWithStillEmptyFormatsThrowsNotAvailable),
             ("unsupportedStatusThrowsUnsupported", unsupportedStatusThrowsUnsupported),
             ("canonicalRejectsUnknownLocale", canonicalRejectsUnknownLocale),

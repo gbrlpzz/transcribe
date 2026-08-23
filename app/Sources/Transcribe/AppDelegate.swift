@@ -16,7 +16,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let pill = DictationPill()
     private let filePill = DictationPill()
     private let localeManager = LocaleManager()
-    private let sessionStore = SessionStore()
     private var nativeEngine: SpeechDictationEngine!
     private var nativeActive = false
     private let signposter = OSSignposter(subsystem: "app.transcribe", category: "dictation")
@@ -50,10 +49,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupHotKey()
         setupPill()
         Task { await localeManager.bootstrap() }
-        sessionStore.startSweeper(intervalMinutes: config.cleanupIntervalMinutes,
-                                  liveTTLHours: config.liveCleanupTTLHours,
-                                  fileTTLHours: config.cleanupTTLHours)
         appReady = true
+        Updater.checkAndInstall()  // lean full-auto: silent unless updating
         let urls = queuedOpenURLs
         queuedOpenURLs.removeAll()
         urls.forEach(handleOpenURL)
@@ -155,19 +152,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupItem.isHidden = true
         menu.addItem(setupItem)
 
-        // No keyboard-equivalent hints here on purpose: the global hotkey
-        // (default ^Space) is the one way to dictate, and advertising a second
-        // chord would invite conflicts. Menu items stay as click fallbacks.
-        let dictate = NSMenuItem(title: "Dictate", action: #selector(toggleDictation),
-                                 keyEquivalent: "")
-        dictate.target = self
-        menu.addItem(dictate)
-
-        let file = NSMenuItem(title: "Transcribe File…", action: #selector(pickFile),
-                              keyEquivalent: "")
-        file.target = self
-        menu.addItem(file)
-
         languageMenu = NSMenu()
         menu.addItem(NSMenuItem(title: "Language", action: nil, keyEquivalent: ""))
         menu.item(at: menu.numberOfItems - 1)?.submenu = languageMenu
@@ -175,15 +159,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(.separator())
 
-        let sessions = NSMenuItem(title: "Sessions Folder…", action: #selector(openSessions),
-                                  keyEquivalent: "")
-        sessions.target = self
-        menu.addItem(sessions)
-
-        menu.addItem(.separator())
-
-        menu.addItem(NSMenuItem(title: "Check for Updates…", action: #selector(checkForUpdates),
-                                keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "About Transcribe", action: #selector(showAbout),
                                 keyEquivalent: ""))
         let quit = NSMenuItem(title: "Quit Transcribe", action: #selector(NSApplication.terminate(_:)),
@@ -446,7 +421,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     Paste.clearIfUnchanged(text)
                     flashResult()
                 }
-                archiveNativeSession(transcript: text)
             case .failure(let error):
                 showIdleIcon()
                 pill.show(.hidden)
@@ -468,30 +442,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         presentAlert(title: "Dictation Unavailable", message: message)
     }
 
-    /// Design §3.10: WAV archive happens OFF the latency path, after paste.
-    private func archiveNativeSession(transcript: String) {
-        guard let audio = nativeEngine?.lastSessionAudio else { return }
-        let localeID = nativeEngine?.lastChosenLaneID ?? ""
-        let keep = config.keepTranscripts
-        // SessionStore is main-actor isolated; this Task runs AFTER paste has
-        // fired, so the archive stays off the hotkey-up latency path (§3.10).
-        let store = SessionStore()
-        Task(priority: .utility) {
-            let tmp = FileManager.default.temporaryDirectory
-                .appendingPathComponent("transcribe_native_\(UUID().uuidString).wav")
-            do {
-                try WavFile.data(pcm: audio.pcm, sampleRate: audio.sampleRate,
-                                 channels: audio.channels).write(to: tmp)
-                store.saveBestEffort(recording: tmp, transcript: transcript,
-                                     model: "apple/\(localeID)", language: localeID,
-                                     source: "live", keepTranscripts: keep)
-                try? FileManager.default.removeItem(at: tmp)
-            } catch {
-                NSLog("Transcribe: session archive skipped (\(error.localizedDescription))")
-            }
-        }
-    }
-
+    /// Design §3.10: nothing archives. The transcript lives in the clipboard
+    /// and (for files) in the .md beside the audio — the app forgets the rest.
     private func enqueueFile(_ url: URL) {
         guard url.isFileURL, FileManager.default.fileExists(atPath: url.path) else {
             refreshHUD()
@@ -547,12 +499,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard activeFileURL == url, fileRequestID == requestID, !Task.isCancelled else { return }
             let text = output.text.trimmingCharacters(in: .whitespacesAndNewlines)
             if !text.isEmpty {
-                let md = try sessionStore.writeMarkdown(audioPath: url, text: output.text)
-                sessionStore.saveBestEffort(recording: nil, transcript: output.text,
-                                            model: "apple/\(output.language)",
-                                            language: output.language, source: "file",
-                                            keepTranscripts: config.keepTranscripts,
-                                            sourcePath: url.path, transcriptPath: md.path)
+                let md = try FileTranscriber.writeMarkdown(audioPath: url, text: output.text)
                 pendingFileStatuses.append(.fileSuccess)
             }
         } catch is CancellationError {
@@ -586,33 +533,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
     }
 
-    @objc private func pickFile() {
-        let panel = NSOpenPanel()
-        // AVAudioFile accepts the native audio containers without filtering.
-        panel.allowedContentTypes = []
-        panel.allowsMultipleSelection = false
-        panel.message = "Choose any media file with an audio track to transcribe locally."
-        panel.begin { [weak self] response in
-            guard response == .OK, let url = panel.url else { return }
-            self?.enqueueFile(url)
-        }
-    }
-
-    @objc private func openSessions() {
-        let base = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/transcribe/sessions")
-        try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
-        NSWorkspace.shared.open(base)
-    }
-
-    @objc private func checkForUpdates() {
-        Updater.checkForUpdates()
-    }
-
     @objc private func showAbout() {
         let alert = NSAlert()
         alert.messageText = "Transcribe \(Updater.currentVersion)"
-        alert.informativeText = "Fully local dictation and transcription.\n\nApple SpeechAnalyzer runs on this Mac — nothing leaves your machine. Audio and transcripts are cleaned up automatically."
         alert.addButton(withTitle: "OK")
         alert.runModal()
     }

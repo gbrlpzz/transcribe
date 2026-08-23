@@ -16,7 +16,25 @@
 - HUD + solid code: 810 → 418 lines; engine input-meter plumbing deleted;
   vector-only rendering — no assets, no new frameworks.
 
-## Unreleased — leaner
+## 1.2.0 — One solid, nothing extra
+
+- One tetrahedron, three behaviors: recording spins gently about one axis,
+  transcribing tumbles reversed and faster about another, done eases into the
+  canonical diamond rest pose (~2 s settle) and is still.
+- HUD doubled in size; menu trimmed to Language / About / Quit (the hotkey is
+  the dictate path, the Finder Quick Action is the file path, updates are
+  automatic).
+- **Sessions removed.** A dictation lives in the clipboard; a file transcript
+  lives in the `.md` beside the audio. No WAV archive, no metadata, no TTL
+  sweeper — the app forgets everything else.
+- **CLI reduced to one command**: `transcribe <audio> [--json] [--locale ll-CC]`
+  (`doctor` and `languages` verbs removed — the Language menu handles
+  languages).
+- **Lean full-auto updater**: checks GitHub at launch, downloads and swaps
+  silently.
+- App icon: corner-on tetrahedron, white on white, dead center.
+- Install-event machinery, lane-id tracking, and retention config deleted.
+- Battery: 32 cases + live smoke.
 
 - Language menu now lists every locale macOS's speech stack offers, straight from
   `SpeechTranscriber.supportedLocales` — the hard-coded en/it/de/es shipped table is gone.

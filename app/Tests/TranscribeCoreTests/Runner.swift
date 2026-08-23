@@ -15,7 +15,6 @@ struct Runner {
         }
         let suites: [(String, [(String, TestCase)])] = [
             ("LocaleManagerTests", LocaleManagerTests.allTests),
-            ("SessionStoreTests", SessionStoreTests.allTests),
             ("AppConfigTests", AppConfigTests.allTests),
             ("DictationSupportTests", DictationSupportTests.allTests),
             ("CLITests", CLITests.allTests)

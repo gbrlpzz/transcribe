@@ -45,31 +45,6 @@ enum DictationSupportTests {
                                              firstFinalOrder: .max, liveChars: 0)]) == nil)
     }
 
-    static func testWavHeaderBytes() throws {
-        let pcm = Data([1, 2, 3, 4])
-        let wav = WavFile.data(pcm: pcm, sampleRate: 16000, channels: 1)
-        try require(wav.count == 44 + 4)
-        try require(String(data: wav.prefix(4), encoding: .ascii) == "RIFF")
-        try require(String(data: wav.subdata(in: 8..<12), encoding: .ascii) == "WAVE")
-        try require(String(data: wav.subdata(in: 36..<40), encoding: .ascii) == "data")
-        // RIFF size = 36 + dataLen = 40 LE
-        let riffSize = wav.subdata(in: 4..<8).map { $0 }
-        try require(riffSize == [40, 0, 0, 0])
-        // sample rate 16000 LE @24; byte rate = rate*blockAlign = 32000 LE @28
-        try require(wav.subdata(in: 24..<28).map { $0 } == [0x80, 0x3E, 0, 0])
-        try require(wav.subdata(in: 28..<32).map { $0 } == [0x00, 0x7D, 0, 0])
-        let dataLen = wav.subdata(in: 40..<44).map { $0 }
-        try require(dataLen == [4, 0, 0, 0])
-    }
-
-    static func testWavHeaderStereo() throws {
-        let wav = WavFile.data(pcm: Data(repeating: 0, count: 6), sampleRate: 8000, channels: 2)
-        let channels = wav.subdata(in: 22..<24).map { $0 }  // 2 LE
-        try require(channels == [2, 0])
-        let blockAlign = wav.subdata(in: 32..<34).map { $0 } // 2ch * 2B = 4 LE
-        try require(blockAlign == [4, 0])
-    }
-
     static var allTests: [(String, TestCase)] {
         [
             ("lanePickerPrefersFinalsOverLongerVolatileTail", testLanePickerPrefersFinalsOverLongerVolatileTail),
@@ -77,8 +52,6 @@ enum DictationSupportTests {
             ("lanePickerEarlierFinalBreaksTies", testLanePickerEarlierFinalBreaksTies),
             ("lanePickerVolatileFallbackWhenNoFinals", testLanePickerVolatileFallbackWhenNoFinals),
             ("lanePickerEmpty", testLanePickerEmpty),
-            ("wavHeaderBytes", testWavHeaderBytes),
-            ("wavHeaderStereo", testWavHeaderStereo),
         ]
     }
 }
