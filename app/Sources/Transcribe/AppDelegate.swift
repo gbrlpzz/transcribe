@@ -216,8 +216,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func flashResult() {
         statusItem.button?.contentTintColor = fileHUDVisible ? .systemOrange : nil
-        pill.setPresentation(compact: fileHUDVisible,
-                             horizontalOffset: fileHUDVisible ? -18 : 0)
+        pill.setPresentation(horizontalOffset: fileHUDVisible ? -48 : 0)
         pill.show(.success)
     }
 
@@ -315,10 +314,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ? "Transcribe — file transcription in progress"
             : "Transcribe — tap \(hotKeyLabel()) to start and stop dictation"
 
-        // The offsets keep the entire medium-pill + circle cluster centered.
-        filePill.setPresentation(compact: concurrent,
-                                 circle: concurrent,
-                                 horizontalOffset: concurrent ? 63 : 0)
+        // Symmetric cluster: visible solids distribute evenly around the
+        // notch center (spacing 96 pt between solid centers).
+        filePill.setPresentation(horizontalOffset: concurrent ? 48 : 0)
         if let file = activeFileURL {
             filePill.show(.transcribing(fileName: file.lastPathComponent))
         } else if let status = pendingFileStatuses.first {
@@ -328,8 +326,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             filePill.show(.hidden)
         }
 
-        pill.setPresentation(compact: shouldShowFile,
-                             horizontalOffset: shouldShowFile ? -18 : 0)
+        pill.setPresentation(horizontalOffset: shouldShowFile ? -48 : 0)
         switch liveState {
         case .recording:
             pill.show(.recording)

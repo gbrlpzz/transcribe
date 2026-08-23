@@ -166,12 +166,5 @@ final class DictationSolidView: NSView {
 }
 
 private func rotation(angle: Float, axis: SIMD3<Float>) -> simd_float4x4 {
-    let a = simd_normalize(axis), c = cos(angle), s = sin(angle), d = 1 - c
-    let m = simd_float3x3(
-        SIMD3(c + d*a.x*a.x, d*a.x*a.y - s*a.z, d*a.x*a.z + s*a.y),
-        SIMD3(d*a.x*a.y + s*a.z, c + d*a.y*a.y, d*a.y*a.z - s*a.x),
-        SIMD3(d*a.x*a.z - s*a.y, d*a.y*a.z + s*a.x, c + d*a.z*a.z))
-    return simd_float4x4(
-        SIMD4(m.columns.0, 0), SIMD4(m.columns.1, 0),
-        SIMD4(m.columns.2, 0), SIMD4(0, 0, 0, 1))
+    simd_float4x4(simd_quatf(angle: angle, axis: simd_normalize(axis)))
 }

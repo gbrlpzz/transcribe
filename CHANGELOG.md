@@ -1,16 +1,20 @@
 # Changelog
 
-## Unreleased — solid HUD
+## 1.1.0 — Solid HUD
 
-- The capsule pill is gone. The HUD is now the platonic solid itself, floating
-  below the notch: **tetrahedron records, cube transcribes, octahedron
-  confirms** — three solids, three stages, same unhurried precessing spin.
-  White translucent facets, hairline edges, faint bloom, diffused contact
-  shadow. Click still cancels, Esc still works, all flash timings unchanged.
+- The capsule pill is gone. The HUD is now a single white translucent
+  **tetrahedron** floating below the notch, and behavior is the language:
+  recording spins gently about one axis, transcribing tumbles reversed and
+  faster about another, done eases into a canonical rest pose and is still.
+  Hairline edges, faint bloom, diffused contact shadow. Click still cancels,
+  Esc still works, all flash timings unchanged.
 - Empty/failure flashes removed: the HUD stands down silently and the existing
   alert path carries failure news. Success is the only flash.
-- HUD code 810 → 247 lines; engine input-meter plumbing deleted; vector-only
-  rendering — no assets, no new frameworks.
+- Language menu lists every locale macOS's speech stack offers (nothing
+  hard-coded); startup warms only the system language.
+- Multiple HUDs distribute symmetrically around the notch center.
+- HUD + solid code: 810 → ~420 lines; engine input-meter plumbing deleted;
+  vector-only rendering — no assets, no new frameworks.
 
 ## Unreleased — leaner
 

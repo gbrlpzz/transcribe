@@ -89,11 +89,9 @@ final class DictationPill: NSPanel {
         ])
     }
 
-    /// Set the HUD's role in the notch cluster; offsets position companion
-    /// HUDs side by side. Compact/circle no longer change geometry — the
-    /// solid is the whole interface.
-    func setPresentation(compact: Bool, circle: Bool = false,
-                         horizontalOffset: CGFloat = 0) {
+    /// Positions this HUD in the notch cluster: N visible solids distribute
+    /// symmetrically around the notch center, 96 pt between solid centers.
+    func setPresentation(horizontalOffset: CGFloat) {
         self.horizontalOffset = horizontalOffset
         guard currentState != .hidden else { return }
         show(currentState)
