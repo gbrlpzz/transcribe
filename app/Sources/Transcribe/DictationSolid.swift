@@ -34,6 +34,8 @@ final class DictationSolidView: NSView {
                 // visible — a solid at rest, not a flat triangle.
                 let tau = Float.pi * 2
                 lockTarget = ((phase - 0.7) / tau).rounded() * tau + 0.7
+                lockFrom = phase
+                lockStart = CACurrentMediaTime()
                 locking = true
                 clock.fireDate = .now
             }
@@ -47,6 +49,10 @@ final class DictationSolidView: NSView {
     var phase: Float = 0  // internal so the HUD and preview harness can pin the rest pose
     private var locking = false
     private var lockTarget: Float = 0
+    private var lockFrom: Float = 0
+    private var lockStart: TimeInterval = 0
+    /// Fixed-duration settle: guaranteed to finish (no asymptotic crawl).
+    private let lockDuration: TimeInterval = 1.2
     private var lastTick: TimeInterval = 0
     private lazy var clock: Timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
         self?.tick()
@@ -109,8 +115,12 @@ final class DictationSolidView: NSView {
         if lastTick > 0 {
             let dt = Float(t - lastTick)
             if locking {
-                phase += (lockTarget - phase) * min(1, dt * 2.2)
-                if abs(lockTarget - phase) < 0.005 {
+                // easeOutCubic over a fixed window: quick start, gentle
+                // landing, always exactly settled at the end.
+                let p = Float(min(1, (t - lockStart) / lockDuration))
+                let e = 1 - pow(1 - p, 3)
+                phase = lockFrom + (lockTarget - lockFrom) * e
+                if p >= 1 {
                     phase = lockTarget
                     locking = false
                     clock.fireDate = .distantFuture
