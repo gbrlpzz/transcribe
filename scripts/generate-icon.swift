@@ -1,74 +1,94 @@
-// Renders the Transcribe app icon: macOS squircle + SF Symbol "mic.fill".
-// Usage: swift scripts/generate-icon.swift <output-dir>
-// Produces AppIcon.icns + AppIcon.png (1024) in the output directory.
 import AppKit
-import Foundation
+
+// Renders the Transcribe app icon: obsidian squircle + the white translucent
+// tetrahedron from the HUD, at its canonical rest pose, with a diffused
+// contact shadow — the app icon IS the interface, frozen.
+// Usage: swift scripts/generate-icon.swift <output-dir>
+
+import simd
+
+func drawIcon(_ size: CGFloat) {
+    // Draws into the current graphics context (exact-pixel bitmap).
+
+    // Obsidian squircle (continuous corners, Apple radius ≈ 0.225 × side).
+    let rect = NSRect(origin: .zero, size: NSSize(width: size, height: size))
+    let squircle = NSBezierPath(roundedRect: rect, xRadius: size * 0.225, yRadius: size * 0.225)
+    squircle.addClip()
+    NSColor(calibratedWhite: 0.11, alpha: 1).setFill()
+    rect.fill()
+    NSColor(calibratedWhite: 1, alpha: 0.07).setStroke()
+    let rim = NSBezierPath(roundedRect: rect.insetBy(dx: size * 0.004, dy: size * 0.004),
+                           xRadius: size * 0.221, yRadius: size * 0.221)
+    rim.lineWidth = max(1, size * 0.004)
+    rim.stroke()
+
+    // Contact shadow under the solid, posterized to three flat steps so the
+    // PNG stays tiny — same 3-stop falloff as the HUD's radial shadow.
+    for (w, h, a) in [(0.60, 0.12, CGFloat(0.10)), (0.48, 0.09, 0.14), (0.34, 0.06, 0.18)] {
+        NSColor.black.withAlphaComponent(a).setFill()
+        NSBezierPath(ovalIn: NSRect(x: size * (0.5 - w / 2), y: size * 0.20,
+                                    width: size * w, height: size * h)).fill()
+    }
+
+    // The tetrahedron at rest (tilt only, no spin) — HUD material.
+    let tilt = simd_float4x4(simd_quatf(
+        angle: Float(0.55), axis: simd_normalize(SIMD3<Float>(1, 0.12, 0.18))))
+    let v: [SIMD3<Float>] = [
+        SIMD3(1, 1, 1), SIMD3(1, -1, -1), SIMD3(-1, 1, -1), SIMD3(-1, -1, 1),
+    ].map { $0 / simd_length($0) }
+    let faces = [[0, 1, 2], [0, 3, 1], [0, 2, 3], [1, 3, 2]]
+
+    let r = size * 0.30
+    let center = CGPoint(x: size * 0.5, y: size * 0.56)
+    var painted: [(path: NSBezierPath, z: Float)] = []
+    for f in faces {
+        var pts: [CGPoint] = []
+        var zsum: Float = 0
+        for i in 0..<f.count {
+            let rv = tilt * SIMD4<Float>(v[f[i]], 1)
+            pts.append(CGPoint(x: center.x + CGFloat(rv.x) * r,
+                               y: center.y - CGFloat(rv.y) * r))
+            zsum += rv.z
+        }
+        let path = NSBezierPath()
+        path.move(to: pts[0])
+        pts.dropFirst().forEach { path.line(to: $0) }
+        path.close()
+        painted.append((path, zsum / Float(f.count)))
+    }
+    for p in painted.sorted(by: { $0.z < $1.z }) {
+        NSColor(calibratedWhite: 0.97, alpha: 0.92).setFill()
+        NSColor(calibratedWhite: 0.28, alpha: 0.60).setStroke()
+        p.path.lineWidth = max(0.75, size * 0.005)
+        p.path.fill()
+        p.path.stroke()
+    }
+}
 
 let args = CommandLine.arguments
-guard args.count >= 2 else {
+guard args.count > 1 else {
     print("usage: swift generate-icon.swift <output-dir>")
-    exit(1)
+    exit(2)
 }
-let outDir = URL(fileURLWithPath: args[1], isDirectory: true)
+let outDir = URL(fileURLWithPath: args[1])
 try? FileManager.default.createDirectory(at: outDir, withIntermediateDirectories: true)
-
-let S: CGFloat = 1024
-let image = NSImage(size: NSSize(width: S, height: S), flipped: false) { rect in
-    // --- squircle background ---
-    let path = NSBezierPath(roundedRect: rect, xRadius: S * 0.2237, yRadius: S * 0.2237)
-    let gradient = NSGradient(colors: [
-        NSColor(srgbRed: 0.18, green: 0.29, blue: 0.94, alpha: 1.0),   // #2E4AF0
-        NSColor(srgbRed: 0.36, green: 0.55, blue: 0.98, alpha: 1.0),   // #5C8DFA
-    ])!
-    gradient.draw(in: path, angle: -90)
-
-    // --- standard microphone glyph (SF Symbol mic.fill), white ---
-    let cfg = NSImage.SymbolConfiguration(pointSize: S * 0.44, weight: .medium)
-    guard let symbol = NSImage(systemSymbolName: "mic.fill", accessibilityDescription: nil)?
-        .withSymbolConfiguration(cfg) else {
-        return true
-    }
-    let glyphSize = symbol.size
-    let glyphRect = NSRect(x: (S - glyphSize.width) / 2,
-                           y: (S - glyphSize.height) / 2,
-                           width: glyphSize.width, height: glyphSize.height)
-    // draw the template glyph, then recolor to white with sourceAtop
-    NSColor.black.set()
-    symbol.draw(in: glyphRect)
-    NSColor.white.set()
-    glyphRect.fill(using: .sourceAtop)
-    return true
-}
-
-// write 1024 png
-guard let tiff = image.tiffRepresentation,
-      let rep = NSBitmapImageRep(data: tiff),
-      let png = rep.representation(using: .png, properties: [:]) else {
-    print("could not render icon")
-    exit(1)
-}
-try png.write(to: outDir.appendingPathComponent("AppIcon.png"))
-
-// iconset for iconutil
-let iconset = outDir.appendingPathComponent("AppIcon.iconset")
-try? FileManager.default.removeItem(at: iconset)
-try? FileManager.default.createDirectory(at: iconset, withIntermediateDirectories: true)
-
 let sizes: [(Int, String)] = [
     (16, "icon_16x16.png"), (32, "icon_16x16@2x.png"),
     (32, "icon_32x32.png"), (64, "icon_32x32@2x.png"),
     (128, "icon_128x128.png"), (256, "icon_128x128@2x.png"),
     (256, "icon_256x256.png"), (512, "icon_256x256@2x.png"),
-    (512, "icon_512x512.png"), (1024, "icon_512x512@2x.png"),
 ]
 for (px, name) in sizes {
-    let small = NSImage(size: NSSize(width: px, height: px), flipped: false) { rect in
-        image.draw(in: rect)
-        return true
-    }
-    guard let t = small.tiffRepresentation,
-          let r = NSBitmapImageRep(data: t),
-          let p = r.representation(using: .png, properties: [:]) else { continue }
-    try? p.write(to: iconset.appendingPathComponent(name))
+    let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: px, pixelsHigh: px,
+                               bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
+                               isPlanar: false, colorSpaceName: .deviceRGB,
+                               bytesPerRow: 0, bitsPerPixel: 0)!
+    rep.size = NSSize(width: px, height: px)
+    NSGraphicsContext.saveGraphicsState()
+    NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+    drawIcon(CGFloat(px))
+    NSGraphicsContext.restoreGraphicsState()
+    guard let png = rep.representation(using: .png, properties: [:]) else { exit(1) }
+    try! png.write(to: outDir.appendingPathComponent(name))
 }
-print("iconset written")
+print("iconset written to \(outDir.path)")
