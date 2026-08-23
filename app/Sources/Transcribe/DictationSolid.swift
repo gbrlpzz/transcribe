@@ -60,7 +60,11 @@ final class DictationSolidView: NSView {
     /// Fixed light toward the viewer's upper right.
 
     var stage: Stage = .recording {
-        didSet { guard stage != oldValue else { return }; rebuildFaces() }
+        didSet {
+            guard stage != oldValue else { return }
+            if stage == .success { phase = 0 }  // canonical diamond rest angle
+            rebuildFaces()
+        }
     }
 
     var style: Style = .solid {
@@ -76,7 +80,7 @@ final class DictationSolidView: NSView {
 
     private let shadowLayer = CAGradientLayer()
     private var faceLayers: [CAShapeLayer] = []
-    private var phase: Float = 0
+    var phase: Float = 0  // internal: the HUD pins the success angle
     private var lastTick: TimeInterval = 0
     private lazy var clock: Timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
         self?.tick()
@@ -102,7 +106,7 @@ final class DictationSolidView: NSView {
         let solid = Self.solid(for: stage)
         faceLayers = (0..<solid.faces.count).map { _ in
             let f = CAShapeLayer()
-            f.strokeColor = NSColor(calibratedWhite: 0.42, alpha: 0.50).cgColor
+            f.strokeColor = NSColor(calibratedWhite: 0.28, alpha: 0.60).cgColor
             f.lineWidth = 0.4
             f.contentsScale = window?.backingScaleFactor ?? 2
             f.shadowColor = NSColor.white.cgColor
@@ -114,13 +118,13 @@ final class DictationSolidView: NSView {
         }
         // Diffused contact shadow: radial falloff, the same softness
         // language as the panel shadow behind the notch.
-        let pad = bounds.width * 0.04
+        let pad = bounds.width * 0.02
         shadowLayer.frame = CGRect(x: pad, y: bounds.height * 0.015,
                                    width: bounds.width - pad * 2,
-                                   height: bounds.height * 0.16)
+                                   height: bounds.height * 0.18)
         let grad = shadowLayer
-        grad.colors = [NSColor.black.withAlphaComponent(0.30).cgColor,
-                       NSColor.black.withAlphaComponent(0.10).cgColor,
+        grad.colors = [NSColor.black.withAlphaComponent(0.45).cgColor,
+                       NSColor.black.withAlphaComponent(0.15).cgColor,
                        NSColor.black.withAlphaComponent(0).cgColor]
         grad.locations = [0, 0.55, 1]
         grad.startPoint = CGPoint(x: 0.5, y: 0.5)
@@ -181,7 +185,7 @@ final class DictationSolidView: NSView {
             let fl = faceLayers[i]
             fl.path = p.path
             fl.fillColor = style == .solid
-                ? NSColor(calibratedWhite: 0.97, alpha: 0.86).cgColor : nil
+                ? NSColor(calibratedWhite: 0.97, alpha: 0.90).cgColor : nil
         }
     }
 }

@@ -25,8 +25,9 @@ final class DictationPill: NSPanel {
         static var fileSuccess: PillState { .flash(.init(kind: .fileSuccess)) }
     }
 
-    /// Edge of the solid — a little taller than the old 34 pt pill, same mass.
-    private static let solidSize: CGFloat = 42
+    /// Edge of the solid — roughly twice the original pill mass, in the
+    /// scale band of Apple's notch-adjacent HUD elements.
+    private static let solidSize: CGFloat = 80
     /// Transparent margin around the solid for bloom + diffused shadow.
     private static let pad: CGFloat = 16
 
@@ -170,7 +171,9 @@ final class DictationPill: NSPanel {
 
     private func apply(_ appearance: Appearance, isNewAppearance: Bool) {
         root.toolTip = appearance.tooltip
-        solid.isSpinning = true
+        // Motion means working; stillness means done. The success octahedron
+        // freezes at whatever angle the previous stage's spin left it at.
+        solid.isSpinning = appearance.stage != .success
         solid.stage = appearance.stage
 
         guard let rect = targetRect() else { return }
