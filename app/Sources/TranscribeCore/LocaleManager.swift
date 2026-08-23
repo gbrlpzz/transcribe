@@ -10,7 +10,7 @@ import Speech
 /// are per-class and lie, status reports `.supported` for fully-working
 /// locales. Status is routing information for the install flow and the UI.
 ///
-/// Concurrency: UI-facing reads (`readyLocales`, `isReady`) are synchronous on
+/// Concurrency: UI-facing reads (`isReady`) are synchronous on
 /// the main actor because menu/HUD/picker all live there; probes and installs
 /// run off-main and hop back. Swift 6 strict-concurrency clean.
 @MainActor
@@ -26,11 +26,9 @@ public final class LocaleManager {
     private var lastStatus: [Locale: AssetInventory.Status] = [:]
     private var progressByKey: [Locale: Double] = [:]
     private var inFlight: Set<Locale> = []
-    private var cancelRequested: Set<Locale> = []
     /// Reservations we own, oldest first (LRU). Primaries reserve at bootstrap,
     /// user-picked variants on demand (design §5.2).
     private(set) var reservations: [Locale] = []
-    private var active: Set<Locale> = []
     private var continuations: [Locale: [UUID: AsyncStream<InstallEvent>.Continuation]] = [:]
 
     public init(service: any LocaleAssetService = SystemLocaleAssetService(),
@@ -43,10 +41,9 @@ public final class LocaleManager {
 
     // MARK: - Public API (minimal surface used by the lanes/menu/CLI)
 
-    /// App-start hook: reserve the primary locales (≤4 ≤ maxReserve 5, one slot
-    /// headroom; design §5.2) and fill the probe cache so the menu reflects
-    /// readiness immediately (AC-L1). Never throws — capability problems show
-    /// up as events/cache state, not crashes.
+    /// App-start hook: reserve the system language (one slot) and fill the
+    /// probe cache so the menu reflects readiness immediately. Never throws —
+    /// capability problems surface as events/cache state, not crashes.
     public func bootstrap() async {
         guard SpeechTranscriber.isAvailable else { return }
         let supported = await service.supportedLocales()
@@ -72,18 +69,6 @@ public final class LocaleManager {
         }
     }
 
-    /// Locales we currently hold reservations for, oldest first. Exposed for
-    /// the settings UI ("languages reserved on this Mac") and diagnostics.
-    public func currentReservations() -> [Locale] { reservations }
-
-    /// Cached-ready locales (sync read for menu/HUD, AC-L1).
-    public func readyLocales() -> [Locale] {
-        readiness
-            .filter { $0.value }
-            .map { $0.key }
-            .sorted { Self.bcp47($0) < Self.bcp47($1) }
-    }
-
     /// Cached readiness lookup (never probes; bcp47-matched so "en-US" input
     /// matches the canonicalized key).
     public func isReady(_ locale: Locale) -> Bool {
@@ -107,10 +92,9 @@ public final class LocaleManager {
     }
 
     /// Full install flow (design §5.3): probe → route by status → installation
-    /// request under a stall watchdog → re-probe before declaring installed
-    /// (np-G10 + L-ASSET recovery semantics). One retry for allocation errors:
-    /// err 10 re-reserves; err 11 releases the least-recently-used non-active
-    /// reservation first. Cancellation-safe via `cancelInstall(_:)`.
+    /// request under a stall watchdog → re-probe before declaring installed.
+    /// One retry for allocation errors: err 10 re-reserves; err 11 releases
+    /// the least-recently-used reservation first.
     public func ensureInstalled(_ locale: Locale) async throws {
         guard SpeechTranscriber.isAvailable else { throw LocaleManagerError.speechUnavailable }
         guard let key = await service.canonical(locale) else {
@@ -148,33 +132,7 @@ public final class LocaleManager {
         return await probeAndCache(key)
     }
 
-    /// Cooperative cancel of an in-flight install (AC-L2 "cancel works").
-    public func cancelInstall(_ locale: Locale) async {
-        let key = await service.canonical(locale) ?? locale
-        cancelRequested.insert(key)
-    }
-
-    /// Release our reservation when the user removes a language from settings.
-    @discardableResult
-    public func releaseReservation(_ locale: Locale) async -> Bool {
-        let key = await service.canonical(locale) ?? locale
-        guard let idx = index(of: key, in: reservations) else { return false }
-        reservations.remove(at: idx)
-        return await service.release(key)
-    }
-
-    /// Lanes mark a locale active while a session uses it so the LRU release
-    /// path can never evict an in-use locale (design §5.2 "non-active").
-    public func markActive(_ locale: Locale) async {
-        let key = await service.canonical(locale) ?? locale
-        active.insert(key)
-    }
-    public func markInactive(_ locale: Locale) async {
-        let key = await service.canonical(locale) ?? locale
-        active.remove(key)
-    }
-
-    // MARK: - Shipped set (R42 / design §5.4) — pure helpers, unit-tested
+    // MARK: - Locale helpers (R42 / design §5.4) — pure helpers, unit-tested
 
     nonisolated public static func bcp47(_ locale: Locale) -> String {
         // Lowercased: BCP-47 is case-insensitive; canonical form for cache keys.
@@ -183,59 +141,18 @@ public final class LocaleManager {
             .lowercased()
     }
 
-    /// Shipped picker set: en-* and it-* unrestricted; de ∈ {DE,AT,CH};
-    /// es ∈ {ES,MX,US}; stable order en, it, de, es then identifier.
-    nonisolated public static func shippedLocales(supported: [Locale]) -> [Locale] {
-        let regions: [String: Set<String>] = [
-            "en": [], "it": [], "de": ["DE", "AT", "CH"], "es": ["ES", "MX", "US"],
-        ]
-        let order = ["en": 0, "it": 1, "de": 2, "es": 3]
-        func parts(_ l: Locale) -> (lang: String, region: String) {
-            let comps = l.identifier.split(whereSeparator: { $0 == "_" || $0 == "-" }).map(String.init)
-            return (comps.first?.lowercased() ?? "", comps.count > 1 ? comps[1].uppercased() : "")
-        }
-        var out: [(Locale, Int, String)] = []
-        for l in supported {
-            let p = parts(l)
-            guard let allowed = regions[p.lang], let o = order[p.lang] else { continue }
-            if allowed.isEmpty || allowed.contains(p.region) {
-                out.append((l, o, bcp47(l)))
-            }
-        }
-        return out.sorted { a, b in
-            a.1 != b.1 ? a.1 < b.1 : a.2 < b.2
-        }.map { $0.0 }
-    }
-
-    /// The four primaries reserving at startup (§5.2): system-matched English
-    /// variant or en-US, then it-IT, de-DE, es-ES — dropping any not supported.
+    /// Primary reservation at startup: the user's language when the speech
+    /// stack supports it — exact variant preferred, else any variant of it.
     nonisolated public static func primaryLocales(system: Locale, supported: [Locale]) -> [Locale] {
-        let shipped = shippedLocales(supported: supported)
-        func lang(_ l: Locale) -> String {
-            l.identifier.split(whereSeparator: { $0 == "_" || $0 == "-" }).first?.lowercased() ?? ""
+        let pref = system.language
+        guard let want = pref.languageCode?.identifier.lowercased() else { return [] }
+        let matches = supported.filter { $0.languageCode?.lowercased() == want }
+        let region = pref.region?.identifier.uppercased() ?? ""
+        if !region.isEmpty,
+           let exact = matches.first(where: { $0.region?.identifier.uppercased() == region }) {
+            return [exact]
         }
-        func region(_ l: Locale) -> String {
-            let c = l.identifier.split(whereSeparator: { $0 == "_" || $0 == "-" }).map(String.init)
-            return c.count > 1 ? c[1].uppercased() : ""
-        }
-        var picked: [Locale] = []
-        let ens = shipped.filter { lang($0) == "en" }
-        let sysLang = system.language.languageCode?.identifier ?? ""
-        let sysRegion = system.language.region?.identifier.uppercased() ?? ""
-        if sysLang == "en", let m = ens.first(where: { region($0) == sysRegion }) {
-            picked.append(m)
-        } else if let us = ens.first(where: { region($0) == "US" }) {
-            picked.append(us)
-        } else if let any = ens.first {
-            picked.append(any)
-        }
-        for want in ["it-IT", "de-DE", "es-ES"] {
-            if let m = shipped.first(where: { Self.bcp47($0).caseInsensitiveCompare(want) == .orderedSame }) {
-                picked.append(m)
-            }
-        }
-        var seen = Set<String>()
-        return picked.filter { seen.insert(Self.bcp47($0)).inserted }
+        return Array(matches.prefix(1))
     }
 
     // MARK: - Install flow internals
@@ -257,7 +174,6 @@ public final class LocaleManager {
         _ = (try? await service.reserve(key)) ?? false
         touch(key)
         inFlight.insert(key)
-        cancelRequested.remove(key)
         defer { inFlight.remove(key) }
         emit(key, .needsInstall)
         progressByKey[key] = request.progressFraction()
@@ -303,7 +219,7 @@ public final class LocaleManager {
         var last = request.progressFraction()
         var stalled: TimeInterval = 0
         while true {
-            if Task.isCancelled || cancelRequested.contains(key) {
+            if Task.isCancelled {
                 handle.cancel()
                 throw CancellationError()
             }
@@ -338,12 +254,12 @@ public final class LocaleManager {
         return ok
     }
 
-    /// LRU bookkeeping: release the oldest reservation that is neither active
-    /// nor in-flight. Returns the released locale or nil when nothing is
-    /// releasable (caller then surfaces .allocationExhausted).
+    /// LRU bookkeeping: release the oldest reservation that is not in-flight.
+    /// Returns the released locale or nil when nothing is releasable (caller
+    /// then surfaces .allocationExhausted).
     @discardableResult
     private func releaseLeastRecentlyUsed(excluding blocked: Set<Locale>) async -> Locale? {
-        for cand in reservations where !blocked.contains(cand) && !active.contains(cand) && !inFlight.contains(cand) {
+        for cand in reservations where !blocked.contains(cand) && !inFlight.contains(cand) {
             let released = await service.release(cand)
             if let idx = index(of: cand, in: reservations) { reservations.remove(at: idx) }
             if released { return cand }

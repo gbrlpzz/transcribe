@@ -241,9 +241,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         languageMenu.addItem(.separator())
         Task { @MainActor [weak self, weak languageMenu] in
             guard let self, let languageMenu else { return }
-            let locales = LocaleManager.shippedLocales(supported: await SpeechTranscriber.supportedLocales)
+            let locales = await SpeechTranscriber.supportedLocales
+                .sorted { LocaleManager.bcp47($0) < LocaleManager.bcp47($1) }
             for locale in locales {
-                let id = locale.identifier(.bcp47)
+                let id = LocaleManager.bcp47(locale)
                 self.addLanguageItem(Locale.current.localizedString(forIdentifier: id) ?? id,
                                      value: id, to: languageMenu)
             }

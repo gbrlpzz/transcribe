@@ -297,13 +297,13 @@ public enum TranscribeCLI {
         let svc = SystemLocaleAssetService()
         let lm = LocaleManager()
         await lm.bootstrap()
-        let shipped = LocaleManager.shippedLocales(supported: await svc.supportedLocales())
+        let shipped = (await svc.supportedLocales()).sorted { LocaleManager.bcp47($0) < LocaleManager.bcp47($1) }
 
         if let want = inv.install {
             guard let loc = shipped.first(where: {
                 LocaleManager.bcp47($0).caseInsensitiveCompare(want) == .orderedSame
             }) else {
-                throw CLIError.localeNotReady("\(want) is not in the shipped set (see matrix below)")
+                throw CLIError.localeNotReady("\(want) is not offered by this Mac\'s speech stack (see matrix below)")
             }
             do {
                 try await installWithProgress(lm, loc)
@@ -366,7 +366,7 @@ public enum TranscribeCLI {
         let svc = SystemLocaleAssetService()
         let lm = LocaleManager()
         await lm.bootstrap()
-        let shipped = LocaleManager.shippedLocales(supported: await svc.supportedLocales())
+        let shipped = (await svc.supportedLocales()).sorted { LocaleManager.bcp47($0) < LocaleManager.bcp47($1) }
         let mic: String
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
         case .authorized: mic = "authorized"
