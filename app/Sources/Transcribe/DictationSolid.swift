@@ -22,6 +22,10 @@ final class DictationSolidView: NSView {
 
     var stage: Stage = .recording
 
+    /// AppKit clips layer-backed views to their bounds by default — which
+    /// would amputate our silhouette shadow. Opt out.
+    override var wantsDefaultClipping: Bool { false }
+
     var isSpinning = false {
         didSet {
             guard isSpinning != oldValue else { return }
@@ -78,9 +82,10 @@ final class DictationSolidView: NSView {
         // Orthogonal-light projection: the root layer shadows its own
         // composited silhouette, so the solid reads against ANY background,
         // light or dark — form first, theme never.
+        layer?.masksToBounds = false  // and see wantsDefaultClipping below
         layer?.shadowColor = NSColor.black.cgColor
-        layer?.shadowOpacity = 0.38
-        layer?.shadowRadius = 8
+        layer?.shadowOpacity = 0.45
+        layer?.shadowRadius = 10
         layer?.shadowOffset = .zero
         clock.fireDate = .distantFuture
         RunLoop.main.add(clock, forMode: .common)
@@ -185,7 +190,7 @@ final class DictationSolidView: NSView {
         painted.sort { $0.z < $1.z }
         for (i, p) in painted.enumerated() {
             faceLayers[i].path = p.path
-            faceLayers[i].fillColor = NSColor(calibratedWhite: 0.97, alpha: 0.90).cgColor
+            faceLayers[i].fillColor = NSColor(calibratedWhite: 0.97, alpha: 0.96).cgColor
         }
     }
 }

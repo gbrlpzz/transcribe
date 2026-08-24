@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.6 — The shadow actually ships
+
+- Fixed: AppKit's default bounds clipping amputated the projection shadow
+  before it reached the screen — you were never seeing it. Layer-backed
+  views now opt out of default clipping and the silhouette halo renders.
+- Shadow strengthened (45 % opacity, radius 10) and the body made
+  near-opaque (96 %) so dense textured backgrounds can't eat the form.
+
 ## 1.2.5 — Projection shadow
 
 - The solid now casts a soft silhouette shadow straight onto what's behind
