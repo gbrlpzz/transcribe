@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.2 — Launch at login
+
+- Transcribe now starts on every login. The first launch registers it via
+  SMAppService (macOS asks once under Login Items); later launches are
+  silent no-ops, and opting out in Settings stays respected.
+
 ## 1.2.1 — Settle fix
 
 - The done-pose settle is a fixed 0.8 s easeOutCubic that always completes

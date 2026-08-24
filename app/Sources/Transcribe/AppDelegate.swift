@@ -1,6 +1,7 @@
 import AppKit
 import Carbon
 import ApplicationServices
+import ServiceManagement
 import Speech
 import os
 import TranscribeCore
@@ -43,6 +44,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Lifecycle
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Launch at login: first registration asks once (Login Items); later
+        // launches are idempotent no-ops, silent if the user opted out.
+        try? SMAppService.mainApp.register()
         nativeEngine = SpeechDictationEngine(localeManager: localeManager)
         nativeEngine.onFailure = { [weak self] message in self?.handleNativeFailure(message) }
         setupStatusItem()
