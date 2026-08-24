@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.2.3 — Done lands as the icon
+
+- The settle no longer stops at an arbitrary angle: the solid now arcs to
+  the app-icon pose — vertex pointing at you inside an upright triangle —
+  so completion is unmistakable from any spin state.
+- Light-mode contrast: edge hairline darkened and doubled in weight
+  (0.4 pt → 0.8 pt), contact shadow deepened. Same geometry, same motion,
+  same line count.
+
 ## 1.2.2 — Launch at login
 
 - Transcribe now starts on every login. The first launch registers it via

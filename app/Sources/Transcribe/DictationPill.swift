@@ -170,8 +170,8 @@ final class DictationPill: NSPanel {
 
     private func apply(_ appearance: Appearance, isNewAppearance: Bool) {
         root.toolTip = appearance.tooltip
-        // Motion means working; stillness means done. The success octahedron
-        // freezes at whatever angle the previous stage's spin left it at.
+        // Motion means working; stillness means done — the solid settles
+        // into the app-icon pose (vertex at you), so completion is clear.
         solid.isSpinning = appearance.stage != .success
         solid.stage = appearance.stage
 

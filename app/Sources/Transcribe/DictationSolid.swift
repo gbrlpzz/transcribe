@@ -3,8 +3,8 @@ import simd
 
 /// One white translucent tetrahedron IS the whole state language. The shape
 /// never changes; behavior does: recording spins gently about one axis,
-/// transcribing tumbles the other way faster, done eases and locks into a
-/// canonical rest pose. Vector-only: no assets, no GPU frameworks.
+/// transcribing tumbles the other way faster, done eases and locks into
+/// the app-icon pose (vertex at you). Vector-only: no assets, no GPU frameworks.
 final class DictationSolidView: NSView {
     enum Stage { case recording, transcribing, success }
 
@@ -29,12 +29,9 @@ final class DictationSolidView: NSView {
                 locking = false
                 clock.fireDate = .now
             } else {
-                // Settle the shortest way to the canonical rest pose: the
-                // tilt-only orientation offset so an internal edge stays
-                // visible — a solid at rest, not a flat triangle.
-                let tau = Float.pi * 2
-                lockTarget = ((phase - 0.7) / tau).rounded() * tau + 0.7
-                lockFrom = phase
+                // Settle the shortest quaternion arc to the icon pose.
+                settled = false
+                lockFromQ = simd_quatf(simd_mul(rotation(angle: phase, axis: spinAxis), tilt))
                 lockStart = CACurrentMediaTime()
                 locking = true
                 clock.fireDate = .now
@@ -46,11 +43,20 @@ final class DictationSolidView: NSView {
 
     private let shadowLayer = CAGradientLayer()
     private var faceLayers: [CAShapeLayer] = []
-    var phase: Float = 0  // internal so the HUD and preview harness can pin the rest pose
+    var phase: Float = 0
     private var locking = false
-    private var lockTarget: Float = 0
-    private var lockFrom: Float = 0
+    private var settled = false
+    private var lockFromQ = simd_quatf(ix: 0, iy: 0, iz: 0, r: 1)
     private var lockStart: TimeInterval = 0
+    /// The app-icon pose (vertex at the viewer, 30° roll): done lands as
+    /// literally the icon, unmistakable from any spin angle.
+    private let restQ: simd_quatf = {
+        let a = simd_normalize(SIMD3<Float>(1, 1, 1))
+        let z = SIMD3<Float>(0, 0, 1)
+        let toViewer = simd_quatf(angle: acos(max(-1, min(1, simd_dot(a, z)))),
+                                  axis: simd_normalize(simd_cross(a, z)))
+        return simd_mul(simd_quatf(angle: Float.pi / 6, axis: z), toViewer)
+    }()
     /// Fixed-duration settle: guaranteed to finish (no asymptotic crawl).
     private let lockDuration: TimeInterval = 0.8
     private var lastTick: TimeInterval = 0
@@ -73,8 +79,8 @@ final class DictationSolidView: NSView {
         // Four face layers, built once — the geometry never changes.
         faceLayers = (0..<4).map { _ in
             let f = CAShapeLayer()
-            f.strokeColor = NSColor(calibratedWhite: 0.28, alpha: 0.60).cgColor
-            f.lineWidth = 0.4
+            f.strokeColor = NSColor(calibratedWhite: 0.25, alpha: 0.85).cgColor
+            f.lineWidth = 0.8
             f.contentsScale = window?.backingScaleFactor ?? 2
             f.shadowColor = NSColor.white.cgColor
             f.shadowOpacity = 0.30
@@ -99,43 +105,43 @@ final class DictationSolidView: NSView {
         shadowLayer.frame = CGRect(x: pad, y: bounds.height * 0.015,
                                    width: bounds.width - pad * 2,
                                    height: bounds.height * 0.18)
-        shadowLayer.colors = [NSColor.black.withAlphaComponent(0.45).cgColor,
-                              NSColor.black.withAlphaComponent(0.15).cgColor,
+        shadowLayer.colors = [NSColor.black.withAlphaComponent(0.60).cgColor,
+                              NSColor.black.withAlphaComponent(0.20).cgColor,
                               NSColor.black.withAlphaComponent(0).cgColor]
         shadowLayer.locations = [0, 0.55, 1]
         shadowLayer.startPoint = CGPoint(x: 0.5, y: 0.5)
         shadowLayer.endPoint = CGPoint(x: 1.0, y: 0.5)
         shadowLayer.type = .radial
         if shadowLayer.superlayer == nil { layer?.insertSublayer(shadowLayer, at: 0) }
-        renderFrame()
+        renderFrame(currentModel(at: CACurrentMediaTime()))
+    }
+
+    /// Spins while running; while settling, arcs to the rest pose with the
+    /// same fixed easeOutCubic window: quick start, gentle landing, done.
+    private func currentModel(at t: TimeInterval) -> simd_float4x4 {
+        if settled { return simd_float4x4(restQ) }
+        guard locking else { return simd_mul(rotation(angle: phase, axis: spinAxis), tilt) }
+        let p = Float(min(1, (t - lockStart) / lockDuration))
+        let e = 1 - pow(1 - p, 3)
+        if p >= 1 {
+            settled = true
+            locking = false
+            clock.fireDate = .distantFuture
+        }
+        return simd_float4x4(simd_slerp(lockFromQ, restQ, e))
     }
 
     private func tick() {
         let t = CACurrentMediaTime()
-        if lastTick > 0 {
-            let dt = Float(t - lastTick)
-            if locking {
-                // easeOutCubic over a fixed window: quick start, gentle
-                // landing, always exactly settled at the end.
-                let p = Float(min(1, (t - lockStart) / lockDuration))
-                let e = 1 - pow(1 - p, 3)
-                phase = lockFrom + (lockTarget - lockFrom) * e
-                if p >= 1 {
-                    phase = lockTarget
-                    locking = false
-                    clock.fireDate = .distantFuture
-                }
-            } else {
-                phase += omega * dt
-            }
+        if lastTick > 0, !locking {
+            phase += omega * Float(t - lastTick)
         }
         lastTick = t
-        renderFrame()
+        renderFrame(currentModel(at: t))
     }
 
-    private func renderFrame() {
+    private func renderFrame(_ model: simd_float4x4) {
         guard bounds.width > 1, layer != nil else { return }
-        let model = simd_mul(rotation(angle: phase, axis: spinAxis), tilt)
 
         let size = min(bounds.width, bounds.height)
         let r = size * 0.36
