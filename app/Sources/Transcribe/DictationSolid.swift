@@ -27,6 +27,7 @@ final class DictationSolidView: NSView {
             guard isSpinning != oldValue else { return }
             if isSpinning {
                 locking = false
+                settled = false  // a new run must move again, even right after a settle
                 clock.fireDate = .now
             } else {
                 // Settle the shortest quaternion arc to the icon pose.
@@ -79,8 +80,9 @@ final class DictationSolidView: NSView {
         // Four face layers, built once — the geometry never changes.
         faceLayers = (0..<4).map { _ in
             let f = CAShapeLayer()
-            f.strokeColor = NSColor(calibratedWhite: 0.25, alpha: 0.85).cgColor
-            f.lineWidth = 0.8
+            // Same stroke recipe as the app icon: soft gray, not an outline.
+            f.strokeColor = NSColor(calibratedWhite: 0.45, alpha: 0.75).cgColor
+            f.lineWidth = 0.5
             f.contentsScale = window?.backingScaleFactor ?? 2
             f.shadowColor = NSColor.white.cgColor
             f.shadowOpacity = 0.30

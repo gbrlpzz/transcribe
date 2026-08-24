@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.4 — Unfreeze + softer edge
+
+- Fixed: after one finished dictation the solid froze at the done pose and
+  never spun again — the settled flag wasn't cleared when a new run started.
+- The edge hairline now uses the app icon's own stroke recipe (soft gray,
+  hairline width) instead of a heavy near-black outline: still legible on
+  light backgrounds without reading as drawn-on.
+
 ## 1.2.3 — Done lands as the icon
 
 - The settle no longer stops at an arbitrary angle: the solid now arcs to
