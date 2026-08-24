@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.5 — Projection shadow
+
+- The solid now casts a soft silhouette shadow straight onto what's behind
+  it (orthogonal light, zero offset): form reads against any window in any
+  appearance. Five lines on the root layer — no new layers, no assets.
+
 ## 1.2.4 — Unfreeze + softer edge
 
 - Fixed: after one finished dictation the solid froze at the done pose and

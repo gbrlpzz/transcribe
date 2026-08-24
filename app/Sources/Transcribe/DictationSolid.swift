@@ -75,6 +75,13 @@ final class DictationSolidView: NSView {
     }
     private func commonInit() {
         wantsLayer = true
+        // Orthogonal-light projection: the root layer shadows its own
+        // composited silhouette, so the solid reads against ANY background,
+        // light or dark — form first, theme never.
+        layer?.shadowColor = NSColor.black.cgColor
+        layer?.shadowOpacity = 0.38
+        layer?.shadowRadius = 8
+        layer?.shadowOffset = .zero
         clock.fireDate = .distantFuture
         RunLoop.main.add(clock, forMode: .common)
         // Four face layers, built once — the geometry never changes.
