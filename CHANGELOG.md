@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.2.7 — Glass, and a cast that finally renders
+
+- The cast shadow is drawn literally now: a convex-hull silhouette layer
+  whose own shadow does the casting — soft and diffuse per Apple's shadow
+  language (radius 9, 32 %, zero offset: light straight through the
+  screen). The previous root-layer shadow never rendered for sublayer-only
+  content — measured zero pixels in a layer-tree probe.
+- Glassier body: faces are translucent white (58 %) with a specular bevel
+  stroke nudged toward the key light; the icon's gray edge recipe stays.
+
 ## 1.2.6 — The shadow actually ships
 
 - Fixed: AppKit's default bounds clipping amputated the projection shadow

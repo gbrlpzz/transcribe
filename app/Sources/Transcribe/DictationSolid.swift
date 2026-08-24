@@ -22,10 +22,6 @@ final class DictationSolidView: NSView {
 
     var stage: Stage = .recording
 
-    /// AppKit clips layer-backed views to their bounds by default — which
-    /// would amputate our silhouette shadow. Opt out.
-    override var wantsDefaultClipping: Bool { false }
-
     var isSpinning = false {
         didSet {
             guard isSpinning != oldValue else { return }
@@ -47,7 +43,9 @@ final class DictationSolidView: NSView {
     override var intrinsicContentSize: NSSize { NSSize(width: 22, height: 22) }
 
     private let shadowLayer = CAGradientLayer()
+    private let projLayer = CAShapeLayer()   // the flat cast silhouette
     private var faceLayers: [CAShapeLayer] = []
+    private var sheenLayers: [CAShapeLayer] = []
     var phase: Float = 0
     private var locking = false
     private var settled = false
@@ -79,14 +77,18 @@ final class DictationSolidView: NSView {
     }
     private func commonInit() {
         wantsLayer = true
-        // Orthogonal-light projection: the root layer shadows its own
-        // composited silhouette, so the solid reads against ANY background,
-        // light or dark — form first, theme never.
-        layer?.masksToBounds = false  // and see wantsDefaultClipping below
-        layer?.shadowColor = NSColor.black.cgColor
-        layer?.shadowOpacity = 0.45
-        layer?.shadowRadius = 10
-        layer?.shadowOffset = .zero
+        // Orthogonal-light projection, drawn literally: one flat dark
+        // silhouette behind the body — light straight through the screen,
+        // cast on whatever is below. In-bounds content; nothing can eat it.
+        // Soft, per Apple: the hull's near-invisible fill is only the alpha
+        // source; its own shadow does the casting. Large radius, low opacity,
+        // zero offset — diffuse, never sharp.
+        projLayer.fillColor = NSColor.black.withAlphaComponent(0.01).cgColor
+        projLayer.shadowColor = NSColor.black.cgColor
+        projLayer.shadowOpacity = 0.32
+        projLayer.shadowRadius = 9
+        projLayer.shadowOffset = .zero
+        layer?.addSublayer(projLayer)
         clock.fireDate = .distantFuture
         RunLoop.main.add(clock, forMode: .common)
         // Four face layers, built once — the geometry never changes.
@@ -102,6 +104,18 @@ final class DictationSolidView: NSView {
             f.shadowOffset = .zero
             layer?.addSublayer(f)
             return f
+        }
+        // Specular bevel: the same edges stroked bright, nudged toward the
+        // key light — the catch that reads as glass, not plastic.
+        sheenLayers = (0..<4).map { _ in
+            let s = CAShapeLayer()
+            s.fillColor = nil
+            s.strokeColor = NSColor(calibratedWhite: 1, alpha: 0.85).cgColor
+            s.lineWidth = 1.0
+            s.contentsScale = window?.backingScaleFactor ?? 2
+            s.transform = CATransform3DMakeTranslation(-0.6, 0.6, 0)
+            layer?.addSublayer(s)
+            return s
         }
         layoutSolid()
     }
@@ -168,30 +182,41 @@ final class DictationSolidView: NSView {
         ].map { $0 / simd_length($0) }
         let faces = [[0, 1, 2], [0, 3, 1], [0, 2, 3], [1, 3, 2]]
 
+        // Project each vertex once; faces and the cast reuse the points.
+        var proj: [CGPoint] = []
+        var rz: [Float] = []
+        proj.reserveCapacity(v.count)
+        for p in v {
+            let rv = simd_mul(model, SIMD4<Float>(p, 1))
+            proj.append(CGPoint(x: center.x + CGFloat(rv.x) * r,
+                                y: center.y - CGFloat(rv.y) * r))
+            rz.append(rv.z)
+        }
         struct Painted { let path: CGPath; let z: Float }
         var painted: [Painted] = []
         painted.reserveCapacity(faces.count)
         for f in faces {
-            var pts: [CGPoint] = []
-            pts.reserveCapacity(f.count)
-            var zsum: Float = 0
-            for i in 0..<f.count {
-                let rv = simd_mul(model, SIMD4<Float>(v[f[i]], 1))
-                pts.append(CGPoint(x: center.x + CGFloat(rv.x) * r,
-                                   y: center.y - CGFloat(rv.y) * r))
-                zsum += rv.z
-            }
             let path = CGMutablePath()
-            path.addLines(between: pts)
+            path.addLines(between: [proj[f[0]], proj[f[1]], proj[f[2]]])
             path.closeSubpath()
-            painted.append(Painted(path: path, z: zsum / Float(f.count)))
+            painted.append(Painted(path: path, z: (rz[f[0]] + rz[f[1]] + rz[f[2]]) / 3))
         }
         // Painter's algorithm: farthest first. Convex solids sort exactly.
         painted.sort { $0.z < $1.z }
         for (i, p) in painted.enumerated() {
             faceLayers[i].path = p.path
-            faceLayers[i].fillColor = NSColor(calibratedWhite: 0.97, alpha: 0.96).cgColor
+            faceLayers[i].fillColor = NSColor(calibratedWhite: 0.97, alpha: 0.58).cgColor
+            sheenLayers[i].path = p.path
         }
+        // The cast: convex hull of the silhouette (a projection of a convex
+        // solid is convex), vertices ordered by angle around the centroid.
+        let cx = proj.map(\.x).reduce(0, +) / 4
+        let cy = proj.map(\.y).reduce(0, +) / 4
+        let hull = proj.sorted { atan2($0.y - cy, $0.x - cx) < atan2($1.y - cy, $1.x - cx) }
+        let cast = CGMutablePath()
+        cast.addLines(between: hull)
+        cast.closeSubpath()
+        projLayer.path = cast
     }
 }
 
