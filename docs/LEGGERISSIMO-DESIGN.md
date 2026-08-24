@@ -436,6 +436,12 @@ cutover and deletion.
 
 ## Solid HUD (deliberate HIG deviation, owner-approved 2026-08-23)
 
+> **Superseded 2026-08-24 (v1.3.0).** Live use reported the solid HUD worse
+> than the capsule it replaced — low contrast in light mode and an ambiguous
+> done state. The capsule pill is restored verbatim (waveform included, fed
+> by a 20-line RMS tap in the engine); this section remains as the record of
+> the experiment.
+
 The HUD is not an Apple-language capsule. It is the platonic solid itself,
 floating below the notch: tetrahedron = recording, cube = transcribing,
 octahedron = success. Rationale: brand identity (archeo-futurist, alien) with

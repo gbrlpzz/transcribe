@@ -1,7 +1,7 @@
 # Transcribe
 
 Dictation and file transcription for macOS 26, on Apple's on-device speech
-stack. 447,280 bytes. No models, no Python, no ffmpeg, no server.
+stack. 448,464 bytes. No models, no Python, no ffmpeg, no server.
 
 Measured on an M4, warm: paste fires 58–105 ms after key-up (p50 58 ms). A
 4-minute file transcribes in 4,200 ms — RTF 0.0176×.
@@ -9,8 +9,9 @@ Measured on an M4, warm: paste fires 58–105 ms after key-up (p50 58 ms). A
 ## Use
 
 - **^Space** (configurable): dictate; the transcript pastes into the focused
-  app. The HUD tetrahedron spins while recording, tumbles reversed while
-  transcribing, locks still when done. Click or Esc cancels.
+  app. The capsule pill rides below the notch — a live waveform while you
+  speak, "Transcribing…" while it thinks, a green check when done. Click or
+  Esc cancels.
 - Drop a WAV/AIFF/CAF/M4A on the menu-bar mic (or Finder Quick Action): a
   `<file>.md` transcript appears beside it.
 - **Language** menu: Auto, or any language this Mac's speech stack offers.
