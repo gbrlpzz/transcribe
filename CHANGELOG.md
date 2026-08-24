@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.3.1 — One capsule width
+
+- Recording, transcribing, and the success flash now share one exact
+  capsule width (the recording pill's), so state changes morph content
+  without resizing the frame. File jobs keep content-fitting for long
+  names.
+
 ## 1.3.0 — Back to the pill
 
 - The tetrahedron experiment ends: the HUD is the 1.0.0 capsule again —

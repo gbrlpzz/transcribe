@@ -440,8 +440,13 @@ final class DictationPill: NSPanel {
         }
 
         let active = stacks[config.stack]!
+        // One capsule width for the three live states (recording, live
+        // transcribing, success): all size to the recording stack, so state
+        // changes never resize the pill. File states keep content fitting.
         let width = circleMode ? Self.pillHeight
-            : (config.liveSizing && compactMode ? Self.mediumWidth
+            : (config.liveSizing
+                ? (compactMode ? Self.mediumWidth
+                    : max(Self.minWidth, recordingStack.fittingSize.width + 4))
                 : max(Self.minWidth, active.fittingSize.width + 4))
         transition(toWidth: width,
                    activeView: active,
