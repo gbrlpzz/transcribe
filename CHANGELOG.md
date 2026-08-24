@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.3.0 — Back to the pill
+
+- The tetrahedron experiment ends: the HUD is the 1.0.0 capsule again —
+  translucent pill below the notch, live waveform riding your voice, the
+  medium-pill + circle cluster for concurrent file jobs. Sounds were never
+  changed (Pop / Tink / Blow).
+- The engine regained its 20-line RMS level tap to feed the waveform;
+  nothing else moved.
+- Kept every minimization: trimmed menu, one-command CLI, no sessions or
+  archives, silent empty/failure handling, full-auto updater, launch at
+  login.
+
 ## 1.2.7 — Glass, and a cast that finally renders
 
 - The cast shadow is drawn literally now: a convex-hull silhouette layer

@@ -39,10 +39,12 @@ public protocol DictationAudioSource: AnyObject, Sendable {
 public final class MicrophoneTapSource: DictationAudioSource, @unchecked Sendable {
     private let audioEngine = AVAudioEngine()
     private let lock = NSLock()
+    private var _level: Float = 0
     private var _rawFormat: AVAudioFormat?
 
     public init() {}
 
+    public var level: Float { lock.lock(); defer { lock.unlock() }; return _level }
     public var rawFormat: AVAudioFormat? { lock.lock(); defer { lock.unlock() }; return _rawFormat }
 
     public func start(sink: @escaping @Sendable (AVAudioPCMBuffer) -> Void) throws {
@@ -52,7 +54,8 @@ public final class MicrophoneTapSource: DictationAudioSource, @unchecked Sendabl
             throw DictationError.microphoneUnavailable
         }
         lock.lock(); _rawFormat = hw; lock.unlock()
-        input.installTap(onBus: 0, bufferSize: 4096, format: hw) { buffer, _ in
+        input.installTap(onBus: 0, bufferSize: 4096, format: hw) { [weak self] buffer, _ in
+            self?.storeLevel(buffer)
             sink(buffer)
         }
         audioEngine.prepare()
@@ -62,6 +65,22 @@ public final class MicrophoneTapSource: DictationAudioSource, @unchecked Sendabl
     public func stop() {
         audioEngine.inputNode.removeTap(onBus: 0)
         audioEngine.stop()
+    }
+
+    /// RMS → dB → the 0…1 waveform level.
+    private func storeLevel(_ buffer: AVAudioPCMBuffer) {
+        guard let ch = buffer.floatChannelData?[0] else { return }
+        let n = Int(buffer.frameLength)
+        guard n > 0 else { return }
+        let step = max(1, n / 256)
+        var acc: Float = 0
+        var count = 0
+        var i = 0
+        while i < n { acc += ch[i] * ch[i]; count += 1; i += step }
+        let rms = sqrt(acc / Float(count))
+        let db = 20 * log10(max(rms, 1e-7))
+        let mapped = max(0, min(1, (db + 55) / 55))
+        lock.lock(); _level = mapped; lock.unlock()
     }
 }
 
@@ -329,6 +348,12 @@ public final class SpeechDictationEngine {
     /// Mid-session hard failure (assets stall, analyzer error). The engine has
     /// already cleaned itself; the app layer tears down session UI.
     public var onFailure: ((String) -> Void)?
+
+    /// HUD waveform level (thread-safe read through the source).
+    public var levelProvider: () -> Float {
+        guard let tap = source as? MicrophoneTapSource else { return { 0 } }
+        return { [tap] in tap.level }
+    }
 
     public private(set) var isActive = false
 
