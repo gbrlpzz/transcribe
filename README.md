@@ -48,4 +48,4 @@ docs/PRIVACY.md · docs/APPLE-SPEECH-API-NOTES.md · docs/TROUBLESHOOTING.md
 
 ## License
 
-MIT — see LICENSE.
+MIT — see LICENSE. Copyright (c) 2026 Gabriele Pizzi
