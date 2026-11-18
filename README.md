@@ -1,7 +1,7 @@
 # Transcribe
 
 Dictation and file transcription for macOS 26, on Apple's on-device speech
-stack. 464,768 bytes. No models, no Python, no ffmpeg, no server.
+stack. 529,840 bytes. No models, no Python, no ffmpeg, no server.
 
 Measured on an M4, warm: paste fires 58–105 ms after key-up (p50 58 ms). A
 4-minute file transcribes in 4,200 ms — RTF 0.0176×.
@@ -15,6 +15,15 @@ Measured on an M4, warm: paste fires 58–105 ms after key-up (p50 58 ms). A
 - Drop a WAV/AIFF/CAF/M4A on the menu-bar mic (or Finder Quick Action): a
   `<file>.md` transcript appears beside it.
 - **Language** menu: Auto, or any language this Mac's speech stack offers.
+  Auto listens for your first three macOS languages at once (System
+  Settings › General › Language & Region) and writes down whichever is
+  spoken — sentence by sentence, so a dictation or recording may change
+  language midway. Pin a language to switch that off.
+- **Vocabulary**: names and jargon it keeps misspelling go in
+  `~/Library/Application Support/transcribe/config.json`, spelled the way
+  they should come out: `"vocabulary": ["Gabriele Pizzi", "Kubernetes"]`.
+  Near-misses it was unsure of are rewritten; words it heard clearly are
+  left alone.
 - **Nothing persists.** A dictation lives in your clipboard; a file
   transcript lives in the `.md` beside the audio. The app forgets the rest.
 
@@ -31,6 +40,10 @@ The app binary is the CLI — one command:
 
     transcribe notes.m4a --json
     # {"file","text","language","elapsed_ms","md_path"}
+    transcribe talk.m4a --locale de-DE   # one language only
+
+Without `--locale` it is Auto, as above; `language` then lists what was
+spoken, in order: `"en-US,de-DE"`.
 
 Missing language assets install automatically. Exit codes: 0 ok · 2 usage ·
 3 unreadable file · 4 language not ready · 5 failed.

@@ -26,6 +26,23 @@ install it. You can also add the language under System Settings → Keyboard →
 Installs are OS-managed and can take minutes. If one stalls, the app gives up after 120 s
 instead of waiting forever (the CLI exits 4) — try again later.
 
+## Auto wrote the wrong language, or mixed two
+
+Auto compares what each of your languages made of the audio. It follows changes of language
+between sentences; a few foreign words inside a sentence stay in the sentence's language, and
+short or mumbled audio gives it little to go on. If you only ever speak one language, pin it
+in the **Language** menu — that is the single-language path, untouched by any of this.
+
+A language only takes part once its assets are installed (see above); until then Auto
+quietly works with the ones that are.
+
+## A name keeps coming out wrong
+
+Add it to `"vocabulary"` in `~/Library/Application Support/transcribe/config.json`, spelled
+as it should appear. It applies from the next dictation. Only near-misses are fixed
+("Kubernitz" → "Kubernetes"): if the recognizer writes something that looks nothing like
+the name, there is nothing to match.
+
 ## A dropped file produces nothing
 
 File jobs fail quietly: no `.md` appears and the pill just goes away. The reason is in the

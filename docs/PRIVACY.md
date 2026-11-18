@@ -8,6 +8,7 @@ through Apple's on-device speech stack.
 - Audio is not sent to a cloud service.
 - There is no analytics or tracking code.
 - Language assets are delivered by macOS itself; after they are present, inference works offline.
+  In Auto, the app asks macOS for the assets of your first three system languages at launch.
 - The only network access in the app is the update check: at every launch it asks the GitHub
   releases API for the latest version and, when one is newer, downloads that release and
   replaces itself. Nothing about you or your audio is sent.
@@ -21,8 +22,8 @@ Nothing is archived. No recordings, no session history, no transcript log.
   hour if you have not replaced it — and the timer does not survive quitting the app.
 - **Files**: the source file stays where it is and `<file>.md` is written beside it. That
   Markdown file is yours; the app never deletes it.
-- **Settings**: `~/Library/Application Support/transcribe/config.json` holds the hotkey and
-  the chosen language.
+- **Settings**: `~/Library/Application Support/transcribe/config.json` holds the hotkey, the
+  chosen language and your vocabulary list.
 
 ## macOS permissions
 

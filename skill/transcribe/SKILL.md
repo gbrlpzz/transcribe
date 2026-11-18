@@ -38,11 +38,19 @@ transcribe talk.m4a --locale de-DE   # force a language (BCP-47 tag)
 
 There are no subcommands and no other flags.
 
+Without `--locale` the language is detected: every installed language among
+the user's first three macOS languages is listened for, and a recording that
+changes language between sentences is followed. Use `--locale` only when the
+user names the language or detection got it wrong.
+
 `--json` line shape (keys sorted):
 
 ```json
 {"elapsed_ms": 1710, "file": "notes.m4a", "language": "en-US", "md_path": "/path/notes.md", "text": "..."}
 ```
+
+`language` lists the languages in the transcript in order of first
+appearance, comma-separated: `"en-US"`, or `"en-US,de-DE"` for a mixed file.
 
 Every run writes `<name>.md` next to each file, replacing one that is already
 there. Nothing else is stored anywhere.
@@ -65,7 +73,10 @@ With several files, the exit code is the worst one.
 ## Decision rules
 
 - Language: use `--locale <ll-CC>` when the user names a language; otherwise
-  the system language is used.
+  let it detect.
+- Names and jargon that come out misspelled: add them to the `"vocabulary"`
+  array in `~/Library/Application Support/transcribe/config.json`, spelled
+  correctly, and run again.
 - A language that is not installed yet is installed automatically on first
   use; that can take minutes and gives up after a 120 s stall (exit 4). Retry
   once, then tell the user to add the language under System Settings ›

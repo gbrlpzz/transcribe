@@ -36,6 +36,38 @@ is new and thinly documented. Test machine: Apple Silicon, macOS 26.x, Xcode CLT
 - Multiple analyzers run concurrently with negligible contention (~5–6 MB per task);
   use `Options(priority: .userInitiated)` so dictation is not starved by file jobs.
 
+## Several languages at once (1.4.0)
+
+- There is no language identification in the API. Several `SpeechTranscriber`s of different
+  locales can share ONE analyzer and one input; each returns its own results.
+- Request `attributeOptions: [.audioTimeRange, .transcriptionConfidence]`: every run of a
+  result then carries a time range and a 0…1 confidence.
+- A transcriber hearing the wrong language still emits fluent-looking text, at confidence
+  ≈ 0.3–0.5 against ≈ 0.9+ for the right one. English is the exception: the German and
+  Italian models read it at ≈ 0.90 (English model: 0.94) and merely spell it worse, so
+  confidence alone picks the wrong lane. `NLLanguageRecognizer` on each lane's own text
+  settles it — a German lane that wrote English sentences is not hearing German.
+- Word time ranges stretch across silence (a word after a 2 s pause may "start" at the pause),
+  and lanes disagree by up to ~0.5 s. Cut between lanes at sentence ends, not at timestamps.
+- On audio that changes language, a `.transcription`-preset transcriber commits one long
+  final and drops whole sentences of its own language; `.progressiveTranscription` does not.
+- Cost: three lanes instead of one moved stop-to-text from 79 to 89 ms (p50) and a 4-minute
+  file from 4.0 to 5.6 s.
+
+## Vocabulary
+
+- `AnalysisContext.contextualStrings` has NO effect on `SpeechTranscriber`: identical text
+  and identical confidences with and without. `DictationTranscriber` honors it, but its base
+  accuracy is clearly lower on the same clip.
+- Misheard names come back at confidence ≤ ~0.75; correctly heard ordinary words at ≥ 0.9.
+  That gap is enough to correct near-miss spellings after the fact without touching
+  "window" when the vocabulary says "Winnow".
+
+## Files
+
+- A zero-length audio file never closes the results stream: the analyzer waits forever.
+  Check `AVAudioFile.length` first.
+
 ## Locale management
 
 - Canonicalize with `SpeechTranscriber.supportedLocale(equivalentTo:)`; compare BCP-47 lowercased.

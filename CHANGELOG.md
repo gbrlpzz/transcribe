@@ -1,5 +1,30 @@
 # Changelog
 
+## 1.4.0 — Polyglot
+
+- Auto now listens for your first three macOS languages at once instead of
+  the system language alone, and writes down whichever is spoken. It
+  follows a change of language between sentences, in dictation and in
+  files. One transcriber per language hears the same audio; each word comes
+  back with a confidence, and the transcript is the best path through
+  them, cut at sentence ends. Pinning a language is the old single path,
+  unchanged.
+- Vocabulary: `"vocabulary": ["Gabriele Pizzi", "Kubernetes"]` in
+  config.json. Apple's transcriber ignores vocabulary hints (measured), so
+  near-miss spellings are corrected afterwards — only where the recognizer
+  itself was unsure, so "window" never becomes "Winnow".
+- Missing assets for the Auto languages are requested from macOS at launch,
+  in the background.
+- `--json`: `language` lists the languages in the transcript, in order
+  ("en-US,de-DE").
+- Fixed: an audio file with no audio in it hung the job forever. It is now
+  a file error (exit 3).
+- Measured, three languages against one: stop-to-text 79 → 89 ms (p50); a
+  4-minute recording 4.0 → 5.6 s. On two 4-minute English recordings Auto
+  never left English. Mixed-language checks so far are synthesized voices.
+- The Language menu names what Auto listens for.
+- Binary: 464,768 → 529,840 bytes.
+
 ## 1.3.2 — Loose ends
 
 - Fixed: dictation pasted two spaces between sentences. Finals carry their
