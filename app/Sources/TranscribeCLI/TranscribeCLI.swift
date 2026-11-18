@@ -42,6 +42,9 @@ public enum TranscribeCLI {
         Transcribe audio files (WAV/AIFF/CAF/m4a-AAC/MP3). Writes <name>.md
         beside each file. --json prints one JSON line per file:
         {"file","text","language","elapsed_ms","md_path"}
+        Without --locale, every installed language among your macOS preferred
+        languages (three at most) is listened for, and a recording that
+        changes language is followed; "language" then lists them, comma-separated.
     """
 
     nonisolated public static func parse(_ argv: [String]) -> Result<Invocation, CLIError> {
@@ -77,17 +80,16 @@ public enum TranscribeCLI {
             return e.exitCode
         }
         do {
-            let svc = SystemLocaleAssetService()
-            let lm = LocaleManager()
-            let locale = try await resolveLocale(lm, svc, inv.localeFlag)
             try await ensureSpeechAuthorized()
-            try await gateLocale(lm, locale)
+            let locales = try await fileLocales(LocaleManager(), pinned: inv.localeFlag)
+            let vocabulary = AppConfig.load().vocabulary
 
             var worst: Int32 = 0
             for path in inv.files {
                 let url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
                 do {
-                    let out = try await FileTranscriber.transcribe(url: url, locale: locale)
+                    let out = try await FileTranscriber.transcribe(url: url, locales: locales,
+                                                                   vocabulary: vocabulary)
                     let md = try FileTranscriber.writeMarkdown(audioPath: url, text: out.text)
                     if inv.json {
                         struct Line: Encodable {
@@ -137,20 +139,31 @@ public enum TranscribeCLI {
         return supported.first
     }
 
-    private static func resolveLocale(_ lm: LocaleManager, _ svc: SystemLocaleAssetService,
-                                      _ flag: String?) async throws -> Locale {
-        if let flag {
-            guard let canon = await svc.canonical(Locale(identifier: flag)) else {
-                throw CLIError.localeNotReady("\(flag) is not a supported transcription locale here")
+    /// The locales one file job listens for, canonical and ready. A pinned
+    /// locale stands alone. Auto is the primary (installed on demand) plus
+    /// every other Auto language whose assets are already on this Mac — a
+    /// file job never waits on a download for a language it may not need.
+    public static func fileLocales(_ lm: LocaleManager, pinned: String?) async throws -> [Locale] {
+        let svc = SystemLocaleAssetService()
+        if let pinned, !pinned.isEmpty, pinned.lowercased() != "auto" {
+            guard let canon = await svc.canonical(Locale(identifier: pinned)) else {
+                throw CLIError.localeNotReady("\(pinned) is not a supported transcription locale here")
             }
-            return canon
+            try await gateLocale(lm, canon)
+            return [canon]
         }
         let supported = await svc.supportedLocales()
         guard let picked = resolveAuto(system: .current, supported: supported),
-              let canon = await svc.canonical(picked) else {
+              let primary = await svc.canonical(picked) else {
             throw CLIError.localeNotReady("no supported locale available on this Mac")
         }
-        return canon
+        try await gateLocale(lm, primary)
+        var out = [primary]
+        for extra in LocaleManager.autoLocales(preferred: LocaleManager.preferredLocales(), supported: supported)
+        where extra.language.languageCode != primary.language.languageCode && out.count < LocaleManager.autoLimit {
+            if let canon = await svc.canonical(extra), await lm.refreshReadiness(canon) { out.append(canon) }
+        }
+        return out
     }
 
     /// Readiness gate with silent auto-install: probe cache → ensureInstalled
@@ -163,6 +176,8 @@ public enum TranscribeCLI {
                 try await lm.ensureInstalled(locale)
             } catch let e as LocaleManagerError {
                 throw mapLocaleError(e)
+            } catch {
+                throw CLIError.localeNotReady(String(describing: error))
             }
         }
         guard lm.isReady(locale) else {

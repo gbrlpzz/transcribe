@@ -14,7 +14,12 @@ import os
 //         volatile results → internal recognition frontier (never rendered)
 //         final results    → committed transcript (paste uses finals ONLY)
 //   hotkey-up → finalizeAndFinishThroughEndOfInput()            [np-G2]
-//             → chosen lane text → Paste.paste (app layer)
+//             → transcript → Paste.paste (app layer)
+//
+// Auto runs one transcriber per preferred language over the SAME input
+// sequence; the transcript is then the best path through their word-level
+// confidences (Transcript.swift). A pinned language is a single transcriber
+// whose finals are concatenated untouched.
 //
 // Evidence anchors: np-G1 TCC ordering · np-G2 explicit finalize · np-G3
 // empty-formats silence · np-G5 AttributedString extraction · np-G7 i16
@@ -242,46 +247,6 @@ final class IngestPipeline: @unchecked Sendable {
     }
 }
 
-// MARK: - Pure decision helpers (unit-tested)
-
-/// One recognition lane's tally for the auto-mode lane pick.
-public struct LaneTally: Equatable, Sendable {
-    public var id: String            // BCP-47
-    public var finalChars: Int       // committed truth (np §3: finals only)
-    public var firstFinalOrder: Int  // arrival index; lower = locked on sooner
-    public var liveChars: Int        // committed + volatile tail (fallback)
-
-    public init(id: String, finalChars: Int, firstFinalOrder: Int, liveChars: Int) {
-        self.id = id
-        self.finalChars = finalChars
-        self.firstFinalOrder = firstFinalOrder
-        self.liveChars = liveChars
-    }
-}
-
-public enum LanePicker {
-    /// Auto-mode heuristic (dual-module over ONE input sequence, ar §4;
-    /// documented contract per mission item 2):
-    /// 1. Eligible lanes are those holding ≥1 FINAL result — volatiles revise
-    ///    continuously and never count as committed text (np §3).
-    /// 2. Among eligible: larger total finalized character count wins (how much
-    ///    of the utterance that model actually captured).
-    /// 3. Tie: smaller firstFinalOrder — the model that produced its first
-    ///    final earlier locked onto the language sooner.
-    /// Defensive fallback when NO lane finalized (should not happen after
-    /// finalizeAndFinishThroughEndOfInput, which forces the tail final):
-    /// longer live text. nil ⇒ nothing heard anywhere.
-    public static func choose(_ lanes: [LaneTally]) -> String? {
-        let eligible = lanes.filter { $0.finalChars > 0 }
-        if let best = eligible.max(by: {
-            ($0.finalChars, -$0.firstFinalOrder) < ($1.finalChars, -$1.firstFinalOrder)
-        }) { return best.id }
-        guard let best = lanes.max(by: { $0.liveChars < $1.liveChars }),
-              best.liveChars > 0 else { return nil }
-        return best.id
-    }
-}
-
 // MARK: - Errors
 
 public enum DictationError: LocalizedError, Equatable {
@@ -353,8 +318,12 @@ public final class SpeechDictationEngine {
     private var setupTask: Task<Void, Never>?
     private var committed: [ObjectIdentifier: [String]] = [:]
     private var tail: [ObjectIdentifier: String] = [:]
-    private var firstFinalRank: [ObjectIdentifier: Int] = [:]
-    private var finalCounter = 0
+    /// Word-level finals per lane; filled only when `wordLevel` is on.
+    private var words: [ObjectIdentifier: [SpokenWord]] = [:]
+    private var vocabulary: [String] = []
+    /// More than one language, or a vocabulary: results carry time ranges
+    /// and confidences and the transcript is composed from words.
+    private var wordLevel = false
     private var finishing = false
     private var sessionError: Error?
     /// Set by failSession alongside cleanup so the REAL failure reason survives
@@ -373,6 +342,8 @@ public final class SpeechDictationEngine {
         public var stopToTextMs: Double?    // stop request → chosen text ready
     }
     public private(set) var lastMetrics: Metrics?
+    /// Languages (BCP-47) that made it into the last transcript.
+    public private(set) var lastLanguages: [String] = []
 
     public init(localeManager: LocaleManager? = nil,
                 audioSource: (any DictationAudioSource)? = nil) {
@@ -384,9 +355,10 @@ public final class SpeechDictationEngine {
 
     /// Hotkey-down. Starts audio capture immediately; analyzer setup proceeds
     /// concurrently so early speech lands in the backlog instead of being lost.
-    public func start(localeSetting: String?) throws {
+    public func start(localeSetting: String?, vocabulary: [String] = []) throws {
         guard !isActive else { return }
         resetSessionState()
+        self.vocabulary = vocabulary
         isActive = true
         startedAt = now()
         signposter.emitEvent("dictation.begin")
@@ -398,8 +370,8 @@ public final class SpeechDictationEngine {
         }
     }
 
-    /// Hotkey-up (np-G2): stop capture, force finalize, choose the lane, return
-    /// its transcript. Empty string ⇒ nothing heard (caller flashes `.empty`).
+    /// Hotkey-up (np-G2): stop capture, force finalize, compose and return the
+    /// transcript. Empty string ⇒ nothing heard.
     public func finish() async -> Result<String, Error> {
         guard isActive else {
             defer { pendingSessionError = nil }
@@ -519,30 +491,34 @@ public final class SpeechDictationEngine {
         }
     }
 
-    /// Locale routing (mission item 2, R38/R42a): a pinned BCP-47 setting runs
-    /// a single-module analyzer; "auto"/nil runs one module per LocaleManager
-    /// primary (today exactly one: the system language) over one input
-    /// sequence and picks the lane at finalize time via LanePicker.choose.
+    /// Locale routing: a pinned BCP-47 setting runs a single-module analyzer;
+    /// "auto"/nil runs one module per Auto language (LocaleManager.autoLocales,
+    /// three at most) over one input sequence.
     func resolveLanes(localeSetting: String?) async throws -> [Lane] {
-        func lane(_ identifier: String) async -> Lane? {
-            guard let canon = await SpeechTranscriber.supportedLocale(equivalentTo: Locale(identifier: identifier)) else {
-                return nil
-            }
-            return Lane(id: canon.identifier(.bcp47),
-                        transcriber: SpeechTranscriber(locale: canon, preset: .progressiveTranscription))
-        }
+        var wanted: [Locale] = []
         if let setting = localeSetting?.lowercased(), !setting.isEmpty, setting != "auto" {
-            guard let l = await lane(setting) else { throw DictationError.unsupportedLocale(setting) }
-            return [l]
+            guard let canon = await SpeechTranscriber.supportedLocale(equivalentTo: Locale(identifier: setting)) else {
+                throw DictationError.unsupportedLocale(setting)
+            }
+            wanted = [canon]
+        } else {
+            let supported = await SpeechTranscriber.supportedLocales
+            for p in LocaleManager.autoLocales(preferred: LocaleManager.preferredLocales(), supported: supported) {
+                if let canon = await SpeechTranscriber.supportedLocale(equivalentTo: p) { wanted.append(canon) }
+            }
+            if wanted.isEmpty { throw DictationError.speechUnavailable }
         }
-        let supported = await SpeechTranscriber.supportedLocales
-        let primaries = LocaleManager.primaryLocales(system: .current, supported: supported).prefix(2)
-        var out: [Lane] = []
-        for p in primaries {
-            if let l = await lane(p.identifier(.bcp47)) { out.append(l) }
+        wordLevel = wanted.count > 1 || !vocabulary.isEmpty
+        let preset = SpeechTranscriber.Preset.progressiveTranscription
+        return wanted.map { locale in
+            let transcriber = wordLevel
+                ? SpeechTranscriber(locale: locale,
+                                    transcriptionOptions: preset.transcriptionOptions,
+                                    reportingOptions: preset.reportingOptions,
+                                    attributeOptions: preset.attributeOptions.union(SpokenWord.attributes))
+                : SpeechTranscriber(locale: locale, preset: preset)
+            return Lane(id: locale.identifier(.bcp47), transcriber: transcriber)
         }
-        if out.isEmpty { throw DictationError.speechUnavailable }
-        return out
     }
 
     /// np-G3 functional probe. NEVER gate on AssetInventory.installedLocales
@@ -554,13 +530,10 @@ public final class SpeechDictationEngine {
     private func startResultLoops(_ resolvedLanes: [Lane]) {
         for lane in resolvedLanes {
             let laneKey = ObjectIdentifier(lane.transcriber)
-            let laneID = lane.id
             resultTasks.append(Task { @MainActor [weak self] in
                 do {
                     for try await r in lane.transcriber.results {
-                        let text = String(r.text.characters)   // np-G5
-                        self?.apply(text: text, isFinal: r.isFinal,
-                                    laneKey: laneKey, laneID: laneID)
+                        self?.apply(r.text, isFinal: r.isFinal, laneKey: laneKey)
                     }
                 } catch is CancellationError {
                 } catch {
@@ -572,15 +545,13 @@ public final class SpeechDictationEngine {
 
     // MARK: Results
 
-    private func apply(text: String, isFinal: Bool, laneKey: ObjectIdentifier, laneID: String) {
+    private func apply(_ result: AttributedString, isFinal: Bool, laneKey: ObjectIdentifier) {
         guard isActive else { return }
+        let text = String(result.characters)   // np-G5
         if isFinal {
             if !text.isEmpty { committed[laneKey, default: []].append(text) }
+            if wordLevel { words[laneKey, default: []] += SpokenWord.words(in: result) }
             tail[laneKey] = nil
-            if firstFinalRank[laneKey] == nil {
-                firstFinalRank[laneKey] = finalCounter
-                finalCounter += 1
-            }
         } else {
             tail[laneKey] = text
         }
@@ -594,33 +565,35 @@ public final class SpeechDictationEngine {
     /// Live text of a lane: committed finals + volatile tail. Results carry
     /// their own spacing (a continuation begins with a space), so they are
     /// concatenated as-is — joining with " " pastes two spaces per sentence.
-    private func liveText(of laneID: String?) -> String {
-        guard let key = laneKey(for: laneID) else { return "" }
+    private func liveText(of lane: Lane) -> String {
+        let key = ObjectIdentifier(lane.transcriber)
         var parts = committed[key] ?? []
         if let t = tail[key], !t.isEmpty { parts.append(t) }
         return parts.joined().trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func laneKey(for id: String?) -> ObjectIdentifier? {
-        let lane = lanes.first { $0.id == id } ?? lanes.first
-        return lane.map { ObjectIdentifier($0.transcriber) }
-    }
-
-    /// Chosen transcript at finalize (heuristic contract: LanePicker docs).
+    /// The transcript at finalize. Word level: the best path through the
+    /// lanes, vocabulary applied. Otherwise — one pinned language, or a
+    /// stream that closed without word-level finals — the first lane that
+    /// heard anything, verbatim.
     private func chosenText() -> String {
-        var tallies: [LaneTally] = []
-        for lane in lanes {
-            let key = ObjectIdentifier(lane.transcriber)
-            let finals = committed[key] ?? []
-            var parts = finals
-            if let t = tail[key], !t.isEmpty { parts.append(t) }
-            tallies.append(LaneTally(id: lane.id,
-                                     finalChars: finals.joined().count,
-                                     firstFinalOrder: firstFinalRank[key] ?? .max,
-                                     liveChars: parts.joined().count))
+        if wordLevel {
+            let composed = Transcript.compose(
+                lanes: lanes.map { (id: $0.id, words: words[ObjectIdentifier($0.transcriber)] ?? []) },
+                vocabulary: vocabulary)
+            if !composed.text.isEmpty {
+                lastLanguages = composed.languages
+                return composed.text
+            }
         }
-        guard let winner = LanePicker.choose(tallies) else { return "" }
-        return liveText(of: winner)
+        for lane in lanes {
+            let text = liveText(of: lane)
+            if !text.isEmpty {
+                lastLanguages = [lane.id]
+                return text
+            }
+        }
+        return ""
     }
 
     // MARK: Failure & teardown
@@ -633,8 +606,7 @@ public final class SpeechDictationEngine {
         analyzer = nil
         lanes = []
         ingest.reset()
-        committed = [:]; tail = [:]; firstFinalRank = [:]
-        finalCounter = 0
+        committed = [:]; tail = [:]; words = [:]
         isActive = false
         sawText = false
         sessionError = nil
@@ -654,8 +626,10 @@ public final class SpeechDictationEngine {
     }
 
     private func resetSessionState() {
-        committed = [:]; tail = [:]; firstFinalRank = [:]
-        finalCounter = 0
+        committed = [:]; tail = [:]; words = [:]
+        vocabulary = []
+        wordLevel = false
+        lastLanguages = []
         sessionError = nil
         pendingSessionError = nil
         sawText = false

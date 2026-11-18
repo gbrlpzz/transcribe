@@ -106,7 +106,7 @@ enum LocaleManagerTests {
     static func makeManager(_ service: FakeService,
                             stall: TimeInterval = 0.3,
                             poll: TimeInterval = 0.05) -> LocaleManager {
-        LocaleManager(service: service, stallTimeout: stall, pollInterval: poll)
+        LocaleManager(service: service, stallTimeout: stall, pollInterval: poll, preferred: [en])
     }
 
     // MARK: Truth rule + cache (np-G3/G4)
@@ -127,7 +127,7 @@ enum LocaleManagerTests {
         let svc = makeService()
         let m = makeManager(svc)
         await m.bootstrap()
-        let want = LocaleManager.primaryLocales(system: .current, supported: [en, de, it, es])
+        let want = LocaleManager.autoLocales(preferred: [en], supported: [en, de, it, es])
         try requireEqual(svc.reserveAttempts.count, want.count,
                          "bootstrap reserves exactly the dynamic primary set")
         try require(!m.isReady(de), "uninstalled locale must not be ready (np-G4)")
@@ -135,7 +135,7 @@ enum LocaleManagerTests {
 
     static func bootstrapAdoptsPreExistingReservation() async throws {
         let svc = makeService()
-        for p in LocaleManager.primaryLocales(system: .current, supported: [en, de, it, es]) {
+        for p in LocaleManager.autoLocales(preferred: [en], supported: [en, de, it, es]) {
             _ = try await svc.reserve(p)  // system-side reservations from a previous run
         }
         let seeded = svc.reserveAttempts.count
@@ -245,7 +245,7 @@ enum LocaleManagerTests {
         let svc = makeService()
         let m = makeManager(svc)
         await m.bootstrap()
-        let primaries = LocaleManager.primaryLocales(system: .current, supported: [en, de, it, es])
+        let primaries = LocaleManager.autoLocales(preferred: [en], supported: [en, de, it, es])
         if primaries.map(LocaleManager.bcp47) == ["it-it"] {
             throw TestSkipped("sole primary equals install target — no LRU candidate possible")
         }
@@ -341,6 +341,28 @@ enum LocaleManagerTests {
         try requireEqual(only.map(LocaleManager.bcp47), ["en-ca"])
     }
 
+    static func autoLocalesOnePerPreferredLanguageCapped() throws {
+        let supported = ["en_CA", "en_US", "en_GB", "de_DE", "it_CH", "it_IT", "fr_FR"].map { Locale(identifier: $0) }
+        func auto(_ ids: [String]) -> [String] {
+            LocaleManager.autoLocales(preferred: ids.map { Locale(identifier: $0) },
+                                      supported: supported).map(LocaleManager.bcp47)
+        }
+        // This Mac's list: region-less English falls to en-US, exact variants win.
+        try requireEqual(auto(["en-CH", "de-DE", "it-CH"]), ["en-us", "de-de", "it-ch"])
+        // One lane per language, unsupported languages skipped, three at most.
+        try requireEqual(auto(["en-GB", "en-US", "ja-JP", "de-CH", "it-IT", "fr-FR"]), ["en-gb", "de-de", "it-it"])
+        try requireEqual(auto(["ja-JP"]), [])
+    }
+
+    static func bootstrapReservesEveryAutoLocale() async throws {
+        let svc = makeService()
+        svc.setProbe("de-de", true)
+        let m = LocaleManager(service: svc, stallTimeout: 0.3, pollInterval: 0.05, preferred: [en, de, it])
+        await m.bootstrap()
+        try requireEqual(svc.reserveAttempts.map(LocaleManager.bcp47), ["en-us", "de-de", "it-it"])
+        try require(m.isReady(de) && !m.isReady(en) && !m.isReady(it), "readiness is per locale")
+    }
+
     static func primaryLocalesEmptyWhenLanguageUnsupported() throws {
         let supported = ["en_US", "de_DE"].map { Locale(identifier: $0) }
         let got = LocaleManager.primaryLocales(system: Locale(identifier: "ja_JP"),
@@ -388,6 +410,8 @@ enum LocaleManagerTests {
             ("primaryLocalesMatchesSystemVariant", primaryLocalesMatchesSystemVariant),
             ("primaryLocalesExactVariantWinsRegardlessOfOrder", primaryLocalesExactVariantWinsRegardlessOfOrder),
             ("primaryLocalesFallBackToLanguageDefaultRegion", primaryLocalesFallBackToLanguageDefaultRegion),
+            ("autoLocalesOnePerPreferredLanguageCapped", autoLocalesOnePerPreferredLanguageCapped),
+            ("bootstrapReservesEveryAutoLocale", bootstrapReservesEveryAutoLocale),
             ("primaryLocalesEmptyWhenLanguageUnsupported", primaryLocalesEmptyWhenLanguageUnsupported),
             ("live_enUS_deDE_functionalProbe", live_enUS_deDE_functionalProbe),
         ]

@@ -9,7 +9,7 @@ import TranscribeCore
 //
 // Usage (from repo app/):
 //   .build/release/TranscribeCoreTests dictbench <clip> [--locale ll-CC|auto]
-//       [--runs N] [--speed X]              # latency + transcript runs
+//       [--runs N] [--speed X] [--vocab a,b]   # latency + transcript runs
 //   ... dictbench cancelstorm <clip> --cycles N
 //   ... dictbench doubletap <clip>
 
@@ -38,7 +38,7 @@ enum DictBench {
 
     static var usage: String {
         """
-        dictbench <clip> [--locale ll-CC|auto] [--runs N] [--speed X]
+        dictbench <clip> [--locale ll-CC|auto] [--runs N] [--speed X] [--vocab a,b]
         dictbench cancelstorm <clip> --cycles N
         dictbench doubletap <clip>
         """
@@ -63,11 +63,12 @@ enum DictBench {
         let requested = opt(args, "--locale") ?? "auto"
         let runs = Int(opt(args, "--runs") ?? "10") ?? 10
         let speed = Double(opt(args, "--speed") ?? "1.0") ?? 1.0
+        let vocab = (opt(args, "--vocab") ?? "").split(separator: ",").map(String.init)
 
         var records: [BenchRecord] = []
         for i in 0..<runs {
             let rec = await oneRun(fileURL: fileURL, requestedLocale: requested,
-                                   speed: speed, run: i)
+                                   speed: speed, run: i, vocabulary: vocab)
             let data = try! JSONEncoder().encode(rec)
             print(String(data: data, encoding: .utf8)!)
             records.append(rec)
@@ -94,14 +95,16 @@ enum DictBench {
         print("SUMMARY " + summary.map { "\"\($0.key)\": \"\($0.value)\"" }.joined(separator: ", "))
     }
 
-    static func oneRun(fileURL: URL, requestedLocale: String, speed: Double, run: Int) async -> BenchRecord {
+    static func oneRun(fileURL: URL, requestedLocale: String, speed: Double, run: Int,
+                       vocabulary: [String] = []) async -> BenchRecord {
         let audioDur = ((try? AVAudioFile(forReading: fileURL)).map {
             Double($0.length) / $0.processingFormat.sampleRate } ?? 1.0)
         let engine: SpeechDictationEngine? = await MainActor.run {
             let source = FileBufferSource(url: fileURL, speed: speed)
             let engine = SpeechDictationEngine(localeManager: LocaleManager(), audioSource: source)
             do {
-                try engine.start(localeSetting: requestedLocale == "auto" ? nil : requestedLocale)
+                try engine.start(localeSetting: requestedLocale == "auto" ? nil : requestedLocale,
+                                 vocabulary: vocabulary)
             } catch {
                 print("START_FAILED \(error.localizedDescription)")
                 return nil
@@ -126,6 +129,7 @@ enum DictBench {
         case .success(let text): rec.text = text; rec.chars = text.count
         case .failure(let e):    rec.text = "ERROR: \(e.localizedDescription)"
         }
+        rec.chosenLane = await engine.lastLanguages.joined(separator: ",")
         return rec
     }
 

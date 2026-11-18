@@ -9,23 +9,29 @@ import Foundation
 public struct AppConfig: Codable, Equatable, Sendable {
     public var hotkey: String = "ctrl+space"
     public var locale: String?
+    /// Names and jargon the recognizer keeps misspelling, written the way
+    /// they should come out (see Vocabulary.apply).
+    public var vocabulary: [String] = []
 
     enum CodingKeys: String, CodingKey {
-        case hotkey, locale
+        case hotkey, locale, vocabulary
     }
 
     public init(
         hotkey: String = "ctrl+space",
         locale: String? = nil,
+        vocabulary: [String] = [],
     ) {
         self.hotkey = hotkey
         self.locale = locale
+        self.vocabulary = vocabulary
     }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         hotkey = try c.decodeIfPresent(String.self, forKey: .hotkey) ?? "ctrl+space"
         locale = try c.decodeIfPresent(String.self, forKey: .locale)
+        vocabulary = try c.decodeIfPresent([String].self, forKey: .vocabulary) ?? []
     }
 
     /// True unless the user pinned an explicit language (R42a auto default).

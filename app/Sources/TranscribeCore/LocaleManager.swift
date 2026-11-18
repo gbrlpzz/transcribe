@@ -20,6 +20,8 @@ public final class LocaleManager {
     /// with zero error surface; this converts that into .timedOut (AC-L2).
     private let stallTimeout: TimeInterval
     private let pollInterval: TimeInterval
+    /// The user's languages, most preferred first (injected in tests).
+    private let preferred: [Locale]
 
     // Functional-truth cache — the ONLY readiness source.
     private var readiness: [Locale: Bool] = [:]
@@ -30,22 +32,25 @@ public final class LocaleManager {
 
     public init(service: any LocaleAssetService = SystemLocaleAssetService(),
                 stallTimeout: TimeInterval = 120,
-                pollInterval: TimeInterval = 1.0) {
+                pollInterval: TimeInterval = 1.0,
+                preferred: [Locale] = LocaleManager.preferredLocales()) {
         self.service = service
+        self.preferred = preferred
         self.stallTimeout = stallTimeout
         self.pollInterval = pollInterval
     }
 
     // MARK: - Public API (minimal surface used by the lanes/menu/CLI)
 
-    /// App-start hook: reserve the system language (one slot) and fill the
-    /// probe cache so the menu reflects readiness immediately. Never throws —
-    /// capability problems surface as events/cache state, not crashes.
+    /// App-start hook: reserve the Auto languages (one slot each, three at
+    /// most) and fill the probe cache so the menu reflects readiness
+    /// immediately. Never throws — capability problems surface as
+    /// events/cache state, not crashes.
     public func bootstrap() async {
         guard SpeechTranscriber.isAvailable else { return }
         let supported = await service.supportedLocales()
         guard !supported.isEmpty else { return }
-        let primaries = Self.primaryLocales(system: .current, supported: supported)
+        let primaries = Self.autoLocales(preferred: preferred, supported: supported)
         let alreadyReserved = await service.reservedLocales()
         for p in primaries where Self.contains(alreadyReserved, p) {
             adopt(p)  // survive relaunches without wasting budget slots
@@ -62,6 +67,16 @@ public final class LocaleManager {
                 }
             }
             _ = await probeAndCache(p)
+        }
+    }
+
+    /// Auto listens for every preferred language, but only the ones whose
+    /// assets are on this Mac. Fetch the missing ones in the background, one
+    /// at a time under the stall watchdog; nothing ever waits on this.
+    public func installMissingAutoLocales() async {
+        let supported = await service.supportedLocales()
+        for locale in Self.autoLocales(preferred: preferred, supported: supported) where !isReady(locale) {
+            try? await ensureInstalled(locale)
         }
     }
 
@@ -137,6 +152,32 @@ public final class LocaleManager {
         let home = Locale.Language(identifier: Locale.Language(identifier: want).maximalIdentifier).region
         if let pick = variant(pref.region?.identifier) ?? variant(home?.identifier) { return [pick] }
         return Array(matches.prefix(1))
+    }
+
+    /// How many languages Auto listens for at once. Each one is a full
+    /// recognizer running on the same audio.
+    nonisolated public static let autoLimit = 3
+
+    /// The user's languages as macOS lists them (System Settings › General ›
+    /// Language & Region), most preferred first.
+    nonisolated public static func preferredLocales() -> [Locale] {
+        let listed = Locale.preferredLanguages.map { Locale(identifier: $0) }
+        return listed.isEmpty ? [.current] : listed
+    }
+
+    /// The Auto set: one supported locale per preferred language, in
+    /// preference order, `autoLimit` at most. The first is the primary — it
+    /// wins ties in the merge and is the one installed on demand.
+    nonisolated public static func autoLocales(preferred: [Locale], supported: [Locale]) -> [Locale] {
+        var out: [Locale] = []
+        for locale in preferred {
+            guard let pick = primaryLocales(system: locale, supported: supported).first,
+                  !out.contains(where: { $0.language.languageCode == pick.language.languageCode })
+            else { continue }
+            out.append(pick)
+            if out.count == autoLimit { break }
+        }
+        return out
     }
 
     // MARK: - Install flow internals

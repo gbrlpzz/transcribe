@@ -18,6 +18,7 @@ enum AppConfigTests {
     @MainActor static func roundTripPreservesAllKeys() throws {
         var cfg = AppConfig()
         cfg.locale = "it-IT"
+        cfg.vocabulary = ["Gabriele Pizzi", "Kubernetes"]
         let data = try JSONEncoder().encode(cfg)
         let back = try JSONDecoder().decode(AppConfig.self, from: data)
         try requireEqual(back, cfg, "Codable round trip")

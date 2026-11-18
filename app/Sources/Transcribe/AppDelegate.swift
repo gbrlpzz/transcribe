@@ -41,6 +41,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var setupItem: NSMenuItem!
     private var languageMenu: NSMenu!
     private var languageItems: [(id: String, title: String)]?
+    private var autoTitle = "Auto"
 
     // MARK: - Lifecycle
 
@@ -53,7 +54,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupStatusItem()
         setupHotKey()
         setupPill()
-        Task { await localeManager.bootstrap() }
+        Task {
+            await localeManager.bootstrap()
+            await localeManager.installMissingAutoLocales()
+        }
         appReady = true
         Updater.checkAndInstall()  // lean full-auto: silent unless updating
         let urls = queuedOpenURLs
@@ -217,7 +221,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func refreshLanguageMenu() {
         guard let languageMenu else { return }
         languageMenu.removeAllItems()
-        addLanguageItem("Auto (system language)", value: "auto", to: languageMenu)
+        addLanguageItem(autoTitle, value: "auto", to: languageMenu)
         languageMenu.addItem(.separator())
         // The supported set is fixed for the life of the process: fetch it
         // once, then every later menu open rebuilds synchronously (no rows
@@ -230,6 +234,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task { @MainActor [weak self] in
             let locales = await SpeechTranscriber.supportedLocales
             guard let self, self.languageItems == nil, !locales.isEmpty else { return }
+            // Auto names the languages it listens for: "Auto (English, German, Italian)".
+            let auto = LocaleManager.autoLocales(preferred: LocaleManager.preferredLocales(), supported: locales)
+                .compactMap { $0.language.languageCode.flatMap { Locale.current.localizedString(forLanguageCode: $0.identifier) } }
+            if !auto.isEmpty { self.autoTitle = "Auto (\(auto.joined(separator: ", ")))" }
             self.languageItems = locales
                 .map { LocaleManager.bcp47($0) }
                 .map { (id: $0, title: Locale.current.localizedString(forIdentifier: $0) ?? $0) }
@@ -378,7 +386,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return
             }
             do {
-                try nativeEngine?.start(localeSetting: config.locale)
+                // Re-read per dictation: vocabulary edits apply without a relaunch.
+                try nativeEngine?.start(localeSetting: config.locale,
+                                        vocabulary: AppConfig.load().vocabulary)
                 nativeActive = true
                 liveState = .recording
                 showRecording()
@@ -491,31 +501,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func runFile(_ url: URL, requestID: UUID) async {
         do {
             try await TranscribeCLI.ensureSpeechAuthorized()
-            let supported = await SpeechTranscriber.supportedLocales
-            let locale: Locale
-            if config.isLocaleAuto {
-                guard let picked = TranscribeCLI.resolveAuto(system: .current, supported: supported),
-                      let canonical = await SpeechTranscriber.supportedLocale(equivalentTo: picked) else {
-                    throw CLIError.localeNotReady("no supported locale is available")
-                }
-                locale = canonical
-            } else {
-                guard let raw = config.locale,
-                      let canonical = await SpeechTranscriber.supportedLocale(
-                        equivalentTo: Locale(identifier: raw)) else {
-                    throw CLIError.localeNotReady("configured language is not supported")
-                }
-                locale = canonical
-            }
-            await localeManager.bootstrap()
-            if !localeManager.isReady(locale),
-               !(await localeManager.refreshReadiness(locale)) {
-                try await localeManager.ensureInstalled(locale)
-            }
-            guard localeManager.isReady(locale) else {
-                throw CLIError.localeNotReady("language assets are not ready")
-            }
-            let output = try await FileTranscriber.transcribe(url: url, locale: locale)
+            let locales = try await TranscribeCLI.fileLocales(
+                localeManager, pinned: config.isLocaleAuto ? nil : config.locale)
+            let output = try await FileTranscriber.transcribe(
+                url: url, locales: locales, vocabulary: AppConfig.load().vocabulary)
             guard activeFileURL == url, fileRequestID == requestID, !Task.isCancelled else { return }
             let text = output.text.trimmingCharacters(in: .whitespacesAndNewlines)
             if !text.isEmpty {
