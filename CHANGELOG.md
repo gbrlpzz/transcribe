@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.3.2 — Loose ends
 
 - Fixed: dictation pasted two spaces between sentences. Finals carry their
   own leading space; they are now concatenated as-is, like the file lane.
@@ -27,8 +27,14 @@
 - `make dist` refuses to zip an ad-hoc signed bundle: installed copies
   auto-update to that zip, and an ad-hoc signature would revoke their
   Microphone, Speech and Accessibility grants.
-- Binary: 448,272 → 464,688 bytes ad-hoc signed. 572 bytes of code crossed
-  a 16,384-byte page boundary in __TEXT.
+- Signing: the Apple Development certificate behind earlier releases
+  expired, so releases are now signed with the self-signed "Transcribe Code
+  Signing" certificate (valid to 2046). macOS ties permissions to the
+  signature: after this update it asks once more for Microphone, Speech
+  Recognition and Accessibility. If pasting stays off, remove Transcribe
+  from the Accessibility list and add it again.
+- Binary: 448,464 → 464,768 bytes. 572 bytes of code crossed a
+  16,384-byte page boundary in __TEXT.
 
 ## 1.3.1 — One capsule width
 

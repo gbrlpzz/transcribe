@@ -13,6 +13,10 @@ System Settings → Privacy & Security → **Accessibility** → allow Transcrib
 **Enable Accessibility to Paste…** while it is missing). Until then the transcript is copied
 to the clipboard instead of pasted.
 
+After updating from 1.3.1 or earlier the switch can look on and still not work: releases
+changed signing certificate in 1.3.2, and macOS keeps the old entry. Remove Transcribe from
+the Accessibility list (−) and add it again.
+
 ## A language is not ready
 
 Language assets are delivered by macOS. Picking a language in the **Language** menu and
