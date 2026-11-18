@@ -1,12 +1,11 @@
 import Foundation
 
-/// Mirrors `transcribe/config.py` so the app and the engine share one
-/// configuration file at `~/Library/Application Support/transcribe/config.json`.
+/// The one configuration file, `~/Library/Application Support/transcribe/config.json`.
 ///
 /// Leggerissimo settings: nil or "auto" uses the system-language heuristic;
-/// otherwise `locale` is a BCP-47 identifier. Every key decodes as optional-with-default, matching the Python loader's
-/// fill-missing-with-defaults semantics; unknown keys are ignored by
-/// JSONDecoder, so upgrading never breaks.
+/// otherwise `locale` is a BCP-47 identifier. Every key decodes as
+/// optional-with-default and unknown keys are ignored by JSONDecoder, so
+/// config files written by older versions keep loading.
 public struct AppConfig: Codable, Equatable, Sendable {
     public var hotkey: String = "ctrl+space"
     public var locale: String?
@@ -36,8 +35,7 @@ public struct AppConfig: Codable, Equatable, Sendable {
     }
 
     static func homeDirectory() -> URL {
-        // Parity with transcribe/config.py default_home(): TRANSCRIBE_HOME
-        // override exists for tests and exotic setups.
+        // TRANSCRIBE_HOME override exists for tests and exotic setups.
         if let override = ProcessInfo.processInfo.environment["TRANSCRIBE_HOME"], !override.isEmpty {
             let expanded = (override as NSString).expandingTildeInPath
             return URL(fileURLWithPath: expanded, isDirectory: true)
@@ -51,8 +49,7 @@ public struct AppConfig: Codable, Equatable, Sendable {
         homeDirectory().appendingPathComponent("config.json")
     }
 
-    /// Load from disk; any read/decode failure falls back to defaults
-    /// (same contract as the Python engine reading the same file).
+    /// Load from disk; any read/decode failure falls back to defaults.
     public static func load() -> AppConfig {
         guard let data = try? Data(contentsOf: configURL()),
               let cfg = try? JSONDecoder().decode(AppConfig.self, from: data) else {
@@ -62,7 +59,7 @@ public struct AppConfig: Codable, Equatable, Sendable {
     }
 
     /// Persist back to config.json (menu Language submenu writes `locale`).
-    /// Sorted keys + pretty printing, mirroring the Python `save()` shape.
+    /// Sorted keys + pretty printing, so the file stays hand-editable.
     public func save() throws {
         let url = AppConfig.configURL()
         try FileManager.default.createDirectory(

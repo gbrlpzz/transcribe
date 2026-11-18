@@ -39,11 +39,12 @@ Missing language assets install automatically. Exit codes: 0 ok · 2 usage ·
 
     make app     # app/dist/Transcribe.app
     make dist    # release zip
-    make test    # 32-case battery + dictbench latency harness
+    make test    # test battery (dictbench latency harness lives beside it)
 
 ## Privacy
 
-On-device. No analytics; network only for the manual update check.
+On-device. No analytics; network only for the update check at launch,
+which installs a newer release by itself.
 docs/PRIVACY.md · docs/APPLE-SPEECH-API-NOTES.md · docs/TROUBLESHOOTING.md
 
 ## License

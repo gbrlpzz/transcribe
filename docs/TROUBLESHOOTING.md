@@ -1,8 +1,5 @@
 # Troubleshooting
 
-First stop: `transcribe doctor` (or drag the app binary to a terminal and run it).
-It reports macOS version, speech-stack availability, permission states, and per-language readiness.
-
 ## Dictation does nothing / no text appears
 
 1. System Settings → Privacy & Security → **Microphone** → allow Transcribe.
@@ -12,31 +9,30 @@ It reports macOS version, speech-stack availability, permission states, and per-
 
 ## Paste does not happen
 
-System Settings → Privacy & Security → **Accessibility** → allow Transcribe. Until then the
-transcript is copied to the clipboard instead of pasted.
+System Settings → Privacy & Security → **Accessibility** → allow Transcribe (the menu shows
+**Enable Accessibility to Paste…** while it is missing). Until then the transcript is copied
+to the clipboard instead of pasted.
 
-## A language shows NOT READY
+## A language is not ready
 
-Language assets are delivered by macOS. Either add the language under
-System Settings → Keyboard → **Dictation**, or run:
+Language assets are delivered by macOS. Picking a language in the **Language** menu and
+dictating, or transcribing a file with `transcribe <file> --locale it-IT`, asks macOS to
+install it. You can also add the language under System Settings → Keyboard → **Dictation**.
 
-```bash
-transcribe languages --install it-IT
-```
+Installs are OS-managed and can take minutes. If one stalls, the app gives up after 120 s
+instead of waiting forever (the CLI exits 4) — try again later.
 
-Installs are OS-managed and can take minutes. If one stalls at 0%, the app fails fast with
-guidance instead of waiting — retry after a system update.
+## A dropped file produces nothing
+
+File jobs fail quietly: no `.md` appears and the pill just goes away. The reason is in the
+log (`log show --last 5m --predicate 'process == "Transcribe"'`), or run the same file through
+the CLI, which prints the error and exits 3 (unreadable), 4 (language) or 5 (failed).
 
 ## Hotkey conflict
 
 If ^Space is taken by another app, Transcribe says so at launch. Change the hotkey in
 `~/Library/Application Support/transcribe/config.json` (`"hotkey": "ctrl+option+space"`),
-then restart the app.
-
-## Sessions disk usage
-
-Live recordings expire after one hour, file transcripts after seven days. Current data:
-open the menu → **Sessions Folder…**.
+then relaunch the app.
 
 ## Reinstall / reset permissions
 

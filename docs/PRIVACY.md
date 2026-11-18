@@ -8,36 +8,25 @@ through Apple's on-device speech stack.
 - Audio is not sent to a cloud service.
 - There is no analytics or tracking code.
 - Language assets are delivered by macOS itself; after they are present, inference works offline.
-- The only network access in the app is the manual **Check for Updates…** menu item.
+- The only network access in the app is the update check: at every launch it asks the GitHub
+  releases API for the latest version and, when one is newer, downloads that release and
+  replaces itself. Nothing about you or your audio is sent.
 
 ## Stored data
 
-Dictation creates a session under:
+Nothing is archived. No recordings, no session history, no transcript log.
 
-```text
-~/Library/Application Support/transcribe/sessions/YYYYMMDD/
-```
-
-A session contains the recording WAV and a JSON metadata file with the transcript.
-
-- Live dictation data is kept for `live_cleanup_ttl_hours` (one hour by default), then removed.
-- Finder and menu-bar file transcription keep the source file in place and write `<file>.md`
-  beside it. The generated Markdown and session metadata are removed after `cleanup_ttl_hours`
-  (seven days by default).
-- The clipboard value is cleared after one hour when it has not been replaced by the user.
-
-Run cleanup manually:
-
-```bash
-transcribe clean --dry-run   # preview
-```
-
-TTLs are set in `~/Library/Application Support/transcribe/config.json`
-(`live_cleanup_ttl_hours`, `cleanup_ttl_hours`).
+- **Dictation**: audio is streamed to the recognizer in memory and never written to disk. The
+  transcript goes to the clipboard and is pasted. The clipboard value is cleared after one
+  hour if you have not replaced it — and the timer does not survive quitting the app.
+- **Files**: the source file stays where it is and `<file>.md` is written beside it. That
+  Markdown file is yours; the app never deletes it.
+- **Settings**: `~/Library/Application Support/transcribe/config.json` holds the hotkey and
+  the chosen language.
 
 ## macOS permissions
 
 - **Microphone**: used while dictation records.
 - **Speech Recognition**: on-device transcription of your audio.
-- **Accessibility**: used to paste text into the focused app. If unavailable, the result is copied to the pasteboard instead.
-- **Apple Events**: sends the paste `⌘V`.
+- **Accessibility**: used to paste text into the focused app (a synthetic ⌘V) and to hear Esc
+  while recording. If unavailable, the result is copied to the clipboard instead.

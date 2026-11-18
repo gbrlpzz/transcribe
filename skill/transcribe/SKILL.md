@@ -2,8 +2,8 @@
 name: transcribe
 description: >
   Local file transcription on a Mac using Transcribe (native Apple speech,
-  macOS 26+). Transcribe audio files to text or Markdown, check setup, and
-  manage language assets — fully on-device, no cloud, no server.
+  macOS 26+). Transcribe audio files to text or Markdown — fully on-device,
+  no cloud, no server.
 ---
 
 # Transcribe — local file transcription
@@ -14,60 +14,29 @@ No server, no port, no cloud calls.
 
 ## Setup
 
-The CLI lives inside the app bundle:
+The CLI is the app binary itself, invoked under the name `transcribe`:
 
 ```bash
-TRANSCRIBE_APP="${TRANSCRIBE_APP:-/Applications/Transcribe.app}"
-CLI="$TRANSCRIBE_APP/Contents/MacOS/transcribe"
+sudo ln -sf /Applications/Transcribe.app/Contents/MacOS/Transcribe /usr/local/bin/transcribe
 ```
 
-Optional one-time setup so any shell can call `transcribe` directly:
-
-```bash
-ln -sf "$TRANSCRIBE_APP/Contents/MacOS/Transcribe" /usr/local/bin/transcribe
-```
-
-(The symlink name must be exactly lowercase `transcribe` — that is what
-selects CLI mode inside the single app binary.)
+(The link name must be exactly lowercase `transcribe` — that is what selects
+CLI mode inside the single app binary. Any directory on `PATH` works.)
 
 First run may raise two one-time macOS prompts: Speech Recognition permission
 (approve once), and per-language voice assets downloaded by the OS on first
 use of that language.
 
-## Commands
-
-### Check setup
+## The one command
 
 ```bash
-"$CLI" doctor
-"$CLI" doctor --json        # machine-readable
+transcribe recording.m4a             # prints transcript, writes recording.md beside it
+transcribe a.wav b.m4a c.mp3         # sequential, one transcript each
+transcribe notes.m4a --json          # machine-readable, one JSON object per line
+transcribe talk.m4a --locale de-DE   # force a language (BCP-47 tag)
 ```
 
-Reports macOS version, speech-stack availability, microphone + speech
-recognition permission, accessibility, app-bundle presence, and which
-languages are ready.
-
-### List languages / install language assets
-
-```bash
-"$CLI" languages            # readiness matrix
-"$CLI" languages --json
-"$CLI" languages --install it-IT   # fetch Apple language assets (progress on stderr)
-```
-
-Shipped set: English (`en-*`), Italian (`it-*`), German (`de-DE/AT/CH`),
-Spanish (`es-ES/MX/US`). A locale must be `ready` before files in it can be
-transcribed; installs can take minutes and are OS-managed after that.
-
-### Transcribe files
-
-```bash
-"$CLI" file recording.m4a             # prints transcript, writes recording.md beside it
-"$CLI" file a.wav b.m4a c.mp3         # sequential, one transcript each
-"$CLI" file notes.m4a --json          # machine-readable, one JSON object per line
-"$CLI" file talk.m4a --locale de-DE   # force a language (BCP-47 tag)
-"$CLI" file secret.wav --no-keep      # stdout only: no .md sidecar, no session record
-```
+There are no subcommands and no other flags.
 
 `--json` line shape (keys sorted):
 
@@ -75,29 +44,32 @@ transcribed; installs can take minutes and are OS-managed after that.
 {"elapsed_ms": 1710, "file": "notes.m4a", "language": "en-US", "md_path": "/path/notes.md", "text": "..."}
 ```
 
-`md_path` is `""` under `--no-keep`. Without it, the transcript is also saved
-as `<name>.md` next to each file and archived in the sessions folder
-(`~/Library/Application Support/transcribe/sessions/<YYYYMMDD>/`; live data is
-cleaned up automatically after 1 hour, file transcripts after 7 days).
+Every run writes `<name>.md` next to each file, replacing one that is already
+there. Nothing else is stored anywhere.
 
 Supported containers (read natively by macOS, no ffmpeg): WAV, AIFF, CAF,
 m4a/AAC, MP3. Exotic containers (mkv, webm) are rejected with exit code 3.
 
 ## Exit codes
 
+With several files, the exit code is the worst one.
+
 | code | meaning |
 |---|---|
 | 0 | success |
-| 2 | usage error (unknown command/flag; there is no `serve`) |
+| 2 | usage error (unknown flag, no input files) |
 | 3 | file error (missing/unreadable/unsupported container) |
-| 4 | locale not ready or unsupported (`transcribe doctor`, then `languages --install <locale>`) |
+| 4 | language unsupported, or its assets did not become ready |
 | 5 | transcription failure (incl. denied Speech Recognition permission) |
 
 ## Decision rules
 
-- Language: use `--locale <ll-CC>` when the user names a language;
-  otherwise the configured default or auto-detection from system settings.
+- Language: use `--locale <ll-CC>` when the user names a language; otherwise
+  the system language is used.
+- A language that is not installed yet is installed automatically on first
+  use; that can take minutes and gives up after a 120 s stall (exit 4). Retry
+  once, then tell the user to add the language under System Settings ›
+  Keyboard › Dictation.
 - No model selection exists — Apple owns models and updates.
 - Do not upload audio anywhere or suggest cloud services.
-- If something fails: run `doctor --json`, fix what it flags, retry once.
 - Long files are fast: expect well under real-time (240 s ≈ 4 s on Apple Silicon).

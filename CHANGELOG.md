@@ -1,5 +1,35 @@
 # Changelog
 
+## Unreleased
+
+- Fixed: dictation pasted two spaces between sentences. Finals carry their
+  own leading space; they are now concatenated as-is, like the file lane.
+- Fixed: Auto picked the first variant the speech stack lists when the
+  system region has none (en-CH dictated in en-CA) while files fell back to
+  en-US. Both now resolve the same way: exact variant, else the language's
+  default region (en-US, it-IT), else any variant.
+- Fixed: the 3 s drain timeout after finalize could not fire — it waited
+  for the very task it was timing out. A stuck result stream is now
+  cancelled at the deadline.
+- Fixed: a session that failed while stopping raised two alerts.
+- Fixed: alerts opened behind the frontmost app.
+- The hotkey-conflict alert pointed at a `transcribe config set` command
+  that no longer exists; it now reveals config.json.
+- Updater: replaces the bundle it is running from (not a fixed
+  /Applications path), and stages the new copy beside it before anything
+  is removed — a failed copy leaves the installed app untouched.
+- Language menu sorted by name, built once instead of on every open.
+- Quick Action: the Python-era fallback script is gone; it only hands
+  files to the app.
+- Docs and the agent skill describe the app as it is (no sessions, no
+  `doctor` / `languages` / `file` subcommands; the update check is
+  automatic).
+- `make dist` refuses to zip an ad-hoc signed bundle: installed copies
+  auto-update to that zip, and an ad-hoc signature would revoke their
+  Microphone, Speech and Accessibility grants.
+- Binary: 448,272 → 464,688 bytes ad-hoc signed. 572 bytes of code crossed
+  a 16,384-byte page boundary in __TEXT.
+
 ## 1.3.1 — One capsule width
 
 - Recording, transcribing, and the success flash now share one exact
