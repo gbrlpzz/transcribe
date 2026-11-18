@@ -40,6 +40,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // menu handles
     private var setupItem: NSMenuItem!
     private var languageMenu: NSMenu!
+    private var languageItems: [(id: String, title: String)]?
 
     // MARK: - Lifecycle
 
@@ -218,16 +219,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         languageMenu.removeAllItems()
         addLanguageItem("Auto (system language)", value: "auto", to: languageMenu)
         languageMenu.addItem(.separator())
-        Task { @MainActor [weak self, weak languageMenu] in
-            guard let self, let languageMenu else { return }
+        // The supported set is fixed for the life of the process: fetch it
+        // once, then every later menu open rebuilds synchronously (no rows
+        // popping in under the cursor).
+        if let languageItems {
+            for (id, title) in languageItems { addLanguageItem(title, value: id, to: languageMenu) }
+            markSelectedLanguage()
+            return
+        }
+        Task { @MainActor [weak self] in
             let locales = await SpeechTranscriber.supportedLocales
-                .sorted { LocaleManager.bcp47($0) < LocaleManager.bcp47($1) }
-            for locale in locales {
-                let id = LocaleManager.bcp47(locale)
-                self.addLanguageItem(Locale.current.localizedString(forIdentifier: id) ?? id,
-                                     value: id, to: languageMenu)
-            }
-            self.markSelectedLanguage()
+            guard let self, self.languageItems == nil, !locales.isEmpty else { return }
+            self.languageItems = locales
+                .map { LocaleManager.bcp47($0) }
+                .map { (id: $0, title: Locale.current.localizedString(forIdentifier: $0) ?? $0) }
+                .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+            self.refreshLanguageMenu()
         }
     }
 
@@ -264,8 +271,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.toggleDictation()
         }
         if !hk.register(modifiers: parsed.modifiers, keyCode: parsed.keyCode) {
+            // Make sure there is a file to edit: defaults never touch disk.
+            if !FileManager.default.fileExists(atPath: AppConfig.configURL().path) { try? config.save() }
             presentAlert(title: "Hotkey Not Available",
-                         message: "\(hotKeyLabel()) is already in use by another app.\n\nChange it with:\n    transcribe config set hotkey \"ctrl+option+space\"")
+                         message: "\(hotKeyLabel()) is already in use by another app.\n\nSet \"hotkey\" in config.json (for example \"ctrl+option+space\"), then relaunch Transcribe.",
+                         actionTitle: "Show config.json",
+                         action: { NSWorkspace.shared.activateFileViewerSelecting([AppConfig.configURL()]) })
         }
         hotKey = hk
     }
@@ -508,7 +519,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard activeFileURL == url, fileRequestID == requestID, !Task.isCancelled else { return }
             let text = output.text.trimmingCharacters(in: .whitespacesAndNewlines)
             if !text.isEmpty {
-                let md = try FileTranscriber.writeMarkdown(audioPath: url, text: output.text)
+                _ = try FileTranscriber.writeMarkdown(audioPath: url, text: output.text)
                 pendingFileStatuses.append(.fileSuccess)
             }
         } catch is CancellationError {
@@ -543,6 +554,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func showAbout() {
+        NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
         alert.messageText = "Transcribe \(Updater.currentVersion)"
         alert.addButton(withTitle: "OK")
@@ -551,6 +563,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func presentAlert(title: String, message: String,
                               actionTitle: String? = nil, action: (() -> Void)? = nil) {
+        // Accessory apps are never frontmost on their own: without this the
+        // alert opens behind whatever the user is typing into.
+        NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
         alert.messageText = title
         alert.informativeText = message
