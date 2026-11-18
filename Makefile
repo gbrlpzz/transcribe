@@ -25,6 +25,13 @@ test: ## run the executable test battery (cd app; no XCTest needed)
 	cd app && swift run -c release TranscribeCoreTests
 
 dist: app ## build the release zip to attach to a GitHub release
+	@# Installed copies auto-update to this zip. macOS keys Microphone, Speech and
+	@# Accessibility grants to the signature: an ad-hoc bundle would silently
+	@# revoke them on every Mac that updates.
+	@if codesign -dv app/dist/Transcribe.app 2>&1 | grep -q 'Signature=adhoc'; then \
+		echo "✗ app/dist/Transcribe.app is ad-hoc signed — no valid signing identity (security find-identity -p codesigning). Not building a release zip."; \
+		exit 1; \
+	fi
 	mkdir -p release
 	rm -f release/Transcribe-$(VERSION).zip
 	ditto -c -k --norsrc --keepParent --zlibCompressionLevel 9 app/dist/Transcribe.app release/Transcribe-$(VERSION).zip
