@@ -1,10 +1,10 @@
 import AppKit
 import Foundation
 
-/// Lean full-auto updater: on launch (staggered 5 s) the app checks GitHub
-/// for a newer release; if one exists it downloads the zip, swaps the bundle
-/// via a detached helper, and relaunches. Silent — failures NSLog and the
-/// app simply keeps running. The menu item forces the same check.
+/// Lean full-auto updater: on launch the app checks GitHub for a newer
+/// release; if one exists it downloads the zip, swaps the bundle via a
+/// detached helper, and relaunches. Silent — failures NSLog and the app
+/// simply keeps running. There is no manual check; relaunching is the check.
 enum Updater {
     static let repo = "gbrlpzz/transcribe"
 
@@ -40,9 +40,14 @@ enum Updater {
         }
     }
 
+    /// Set on the relaunch after a swap that did not land, so a bundle that
+    /// cannot be replaced is not downloaded and retried in a loop.
+    private static let skipFlag = "--no-update"
+
     /// Check once and auto-install if newer. Silent on failure and when
     /// already current.
     static func checkAndInstall() {
+        guard !CommandLine.arguments.contains(skipFlag) else { return }
         latestRelease { version, zip in
             guard isNewer(version, than: currentVersion) else { return }
             guard let zip else {
@@ -71,6 +76,10 @@ enum Updater {
     }
 
     private static func performUpdate(zipURL: String, version: String) {
+        // Update the bundle that is running, wherever it lives; a bare
+        // `swift run` binary has no bundle to replace.
+        let dest = Bundle.main.bundleURL
+        guard dest.pathExtension == "app" else { return }
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("transcribe-update-\(version)")
         try? FileManager.default.removeItem(at: tmp)
@@ -86,7 +95,20 @@ enum Updater {
                                 arguments: ["-x", "-k", archive.path, staged.path])
                     .waitUntilExit()
                 guard let app = findApp(in: staged) else { return }
-                DispatchQueue.main.async { swapAndRelaunch(stagedApp: app, version: version) }
+                // Copy beside the running bundle BEFORE anything is removed: a
+                // copy that fails (read-only volume, no permission) leaves the
+                // installed app untouched and running.
+                let incoming = dest.appendingPathExtension("new")
+                try? FileManager.default.removeItem(at: incoming)
+                let copy = try Process.run(URL(fileURLWithPath: "/usr/bin/ditto"),
+                                           arguments: [app.path, incoming.path])
+                copy.waitUntilExit()
+                guard copy.terminationStatus == 0 else {
+                    try? FileManager.default.removeItem(at: incoming)
+                    NSLog("Transcribe: auto-update could not stage beside %@", dest.path)
+                    return
+                }
+                DispatchQueue.main.async { swapAndRelaunch(dest: dest) }
             } catch {
                 NSLog("Transcribe: auto-update failed (\(error.localizedDescription))")
             }
@@ -100,25 +122,32 @@ enum Updater {
         return entries.first { $0.pathExtension == "app" } ?? entries.compactMap(findApp).first
     }
 
-    /// Detached helper: waits for this process to exit, swaps the bundle, and relaunches.
-    private static func swapAndRelaunch(stagedApp: URL, version: String) {
-        let pid = ProcessInfo.processInfo.processIdentifier
-        let dest = "/Applications/Transcribe.app"
+    /// Detached helper: waits for this process to exit, renames the staged
+    /// `<bundle>.new` into place (two renames in one directory — the old
+    /// bundle is only deleted once the new one sits at `dest`), and relaunches.
+    private static func swapAndRelaunch(dest: URL) {
+        // $1 = our pid, $2 = bundle path, $3 = skip flag for a failed swap.
         let script = """
-        #!/bin/sh
-        while kill -0 \(pid) 2>/dev/null; do sleep 0.5; done
-        rm -rf '\(dest)'
-        ditto '\(stagedApp.path)' '\(dest)'
-        open '\(dest)'
+        while kill -0 "$1" 2>/dev/null; do sleep 0.5; done
+        if mv "$2" "$2.old" && mv "$2.new" "$2"; then
+            rm -rf "$2.old"
+            open "$2"
+        else
+            [ -d "$2" ] || mv "$2.old" "$2"
+            rm -rf "$2.new"
+            open "$2" --args "$3"
+        fi
         """
-        let helper = stagedApp.deletingLastPathComponent().appendingPathComponent("swap.sh")
-        try? script.write(to: helper, atomically: true, encoding: .utf8)
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: "/bin/sh")
-        proc.arguments = [helper.path]
+        proc.arguments = ["-c", script, "sh",
+                          String(ProcessInfo.processInfo.processIdentifier), dest.path, skipFlag]
         do {
             try proc.run()  // detached: survives our termination
-        } catch {}
+        } catch {
+            try? FileManager.default.removeItem(at: dest.appendingPathExtension("new"))
+            return
+        }
         exit(0)
     }
 
