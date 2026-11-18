@@ -319,6 +319,28 @@ enum LocaleManagerTests {
         try requireEqual(got, ["en-gb"])
     }
 
+    static func primaryLocalesExactVariantWinsRegardlessOfOrder() throws {
+        let supported = ["en_CA", "en_US", "en_GB"].map { Locale(identifier: $0) }
+        let got = LocaleManager.primaryLocales(system: Locale(identifier: "en_GB"),
+                                               supported: supported).map(LocaleManager.bcp47)
+        try requireEqual(got, ["en-gb"])
+    }
+
+    static func primaryLocalesFallBackToLanguageDefaultRegion() throws {
+        // en-CH has no speech variant: en-US, not the first English listed.
+        let supported = ["en_CA", "en_GB", "en_US", "it_CH", "it_IT"].map { Locale(identifier: $0) }
+        let en = LocaleManager.primaryLocales(system: Locale(identifier: "en_CH"),
+                                              supported: supported).map(LocaleManager.bcp47)
+        try requireEqual(en, ["en-us"])
+        let it = LocaleManager.primaryLocales(system: Locale(identifier: "it_SM"),
+                                              supported: supported).map(LocaleManager.bcp47)
+        try requireEqual(it, ["it-it"])
+        // Default region absent too: any variant of the language still beats none.
+        let only = LocaleManager.primaryLocales(system: Locale(identifier: "en_CH"),
+                                                supported: [Locale(identifier: "en_CA")])
+        try requireEqual(only.map(LocaleManager.bcp47), ["en-ca"])
+    }
+
     static func primaryLocalesEmptyWhenLanguageUnsupported() throws {
         let supported = ["en_US", "de_DE"].map { Locale(identifier: $0) }
         let got = LocaleManager.primaryLocales(system: Locale(identifier: "ja_JP"),
@@ -364,6 +386,8 @@ enum LocaleManagerTests {
             ("err10ReReservesAndRetriesOnce", err10ReReservesAndRetriesOnce),
             ("errorCodeMapping", errorCodeMapping),
             ("primaryLocalesMatchesSystemVariant", primaryLocalesMatchesSystemVariant),
+            ("primaryLocalesExactVariantWinsRegardlessOfOrder", primaryLocalesExactVariantWinsRegardlessOfOrder),
+            ("primaryLocalesFallBackToLanguageDefaultRegion", primaryLocalesFallBackToLanguageDefaultRegion),
             ("primaryLocalesEmptyWhenLanguageUnsupported", primaryLocalesEmptyWhenLanguageUnsupported),
             ("live_enUS_deDE_functionalProbe", live_enUS_deDE_functionalProbe),
         ]

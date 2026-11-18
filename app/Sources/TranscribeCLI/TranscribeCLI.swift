@@ -125,12 +125,12 @@ public enum TranscribeCLI {
 
     // MARK: - Locale resolution
 
-    /// Auto = system language+region locale when supported, else en-US, else
-    /// first supported. Pure over an already-canonical list: unit-tested.
+    /// Auto = the same locale dictation picks for the system language
+    /// (LocaleManager.primaryLocales), else en-US, else first supported.
+    /// Pure over an already-canonical list: unit-tested.
     nonisolated public static func resolveAuto(system: Locale, supported: [Locale]) -> Locale? {
-        let sysKey = LocaleManager.bcp47(system)
-        if let exact = supported.first(where: { LocaleManager.bcp47($0) == sysKey }) {
-            return exact
+        if let primary = LocaleManager.primaryLocales(system: system, supported: supported).first {
+            return primary
         }
         let ens = supported.filter { $0.language.languageCode?.identifier == "en" }
         if let us = ens.first(where: { $0.region?.identifier == "US" }) { return us }

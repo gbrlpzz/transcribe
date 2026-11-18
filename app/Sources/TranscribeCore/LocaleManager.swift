@@ -123,16 +123,19 @@ public final class LocaleManager {
     }
 
     /// Primary reservation at startup: the user's language when the speech
-    /// stack supports it — exact variant preferred, else any variant of it.
+    /// stack supports it — exact variant preferred, else the language's own
+    /// default region (en-CH → en-US, not whichever English is listed first),
+    /// else any variant of it.
     nonisolated public static func primaryLocales(system: Locale, supported: [Locale]) -> [Locale] {
         let pref = system.language
         guard let want = pref.languageCode?.identifier.lowercased() else { return [] }
-        let matches = supported.filter { $0.languageCode?.lowercased() == want }
-        let region = pref.region?.identifier.uppercased() ?? ""
-        if !region.isEmpty,
-           let exact = matches.first(where: { $0.region?.identifier.uppercased() == region }) {
-            return [exact]
+        let matches = supported.filter { $0.language.languageCode?.identifier.lowercased() == want }
+        func variant(_ region: String?) -> Locale? {
+            guard let region = region?.uppercased() else { return nil }
+            return matches.first { $0.region?.identifier.uppercased() == region }
         }
+        let home = Locale.Language(identifier: Locale.Language(identifier: want).maximalIdentifier).region
+        if let pick = variant(pref.region?.identifier) ?? variant(home?.identifier) { return [pick] }
         return Array(matches.prefix(1))
     }
 

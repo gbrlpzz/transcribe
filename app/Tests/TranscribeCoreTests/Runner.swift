@@ -7,7 +7,7 @@ struct Runner {
     static func main() async {
         // dictbench <wav> ... : live verification of the dictation lane
         // (synthetic clips through the REAL engine pipeline). Not part of the
-        // 32-case suite; used by b-dictation acceptance + merge gates.
+        // unit suite; used by b-dictation acceptance + merge gates.
         let args = CommandLine.arguments
         if args.count > 1, args[1] == "dictbench" {
             await DictBench.run(Array(args.dropFirst(2)))

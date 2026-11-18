@@ -42,6 +42,11 @@ enum CLITests {
         try requireEqual(LocaleManager.bcp47(TranscribeCLI.resolveAuto(
             system: loc("ja_JP"), supported: supported)!), "en-us",
             "system language unsupported -> en-US")
+        // Files and dictation agree: a region with no variant keeps the language.
+        try requireEqual(LocaleManager.bcp47(TranscribeCLI.resolveAuto(
+            system: loc("it_CH"), supported: supported)!), "it-it")
+        try requireEqual(LocaleManager.bcp47(TranscribeCLI.resolveAuto(
+            system: loc("en_CH"), supported: [loc("en_CA")] + supported)!), "en-us")
     }
 
     static var allTests: [(String, TestCase)] {
