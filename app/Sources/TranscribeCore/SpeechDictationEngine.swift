@@ -136,13 +136,6 @@ final class IngestPipeline: @unchecked Sendable {
     private var converter: AVAudioConverter?
     private var continuation: AsyncStream<AnalyzerInput>.Continuation?
     private var pendingRaw: [AVAudioPCMBuffer] = []
-    private(set) var targetRate = 16000
-    private(set) var targetChannels = 1
-
-
-    var shape: (rate: Int, channels: Int) {
-        lock.lock(); defer { lock.unlock() }; return (targetRate, targetChannels)
-    }
 
     /// Wire the pipeline to an analyzer input sequence. Buffers delivered
     /// before bind are held and drained here (analyzer setup ≈ 100–300 ms).
@@ -156,13 +149,11 @@ final class IngestPipeline: @unchecked Sendable {
             throw DictationError.unsupportedTargetFormat(target)
         }
         lock.lock()
-        targetRate = Int(target.sampleRate)
-        targetChannels = Int(target.channelCount)
         if rawFormat.sampleRate == target.sampleRate,
            rawFormat.channelCount == target.channelCount,
            rawFormat.commonFormat == target.commonFormat,
            rawFormat.isInterleaved == target.isInterleaved {
-            converter = nil                    // byte path: session-store WAVs, np-G7
+            converter = nil                    // already analyzer-shaped, np-G7
         } else {
             guard let conv = AVAudioConverter(from: rawFormat, to: target) else {
                 lock.unlock()
@@ -197,7 +188,7 @@ final class IngestPipeline: @unchecked Sendable {
                 status.pointee = .endOfStream
                 return nil
             })
-            if end.frameLength > 0 { yield(end, to: cont) }
+            if end.frameLength > 0 { cont.yield(AnalyzerInput(buffer: end)) }
         }
         cont?.finish()
     }
@@ -240,23 +231,14 @@ final class IngestPipeline: @unchecked Sendable {
                     outStatus.pointee = .noDataNow
                     return nil
                 })
-                if out.frameLength > 0, let cont { yield(out, to: cont) }
+                if out.frameLength > 0, let cont { cont.yield(AnalyzerInput(buffer: out)) }
                 if status == .haveData && !queue.isEmpty() { continue }  // more output pending
                 if status == .endOfStream || status == .error || err != nil { break }
                 break   // .inputRanDry / nothing produced: wait for next tap buffer
             }
         } else if let cont {
-            yield(raw, to: cont)       // already in target format: zero-copy path
+            cont.yield(AnalyzerInput(buffer: raw))   // already in target format: zero-copy path
         }
-    }
-
-    private func yield(_ buffer: AVAudioPCMBuffer, to cont: AsyncStream<AnalyzerInput>.Continuation) {
-        lock.lock()
-        let abl = buffer.audioBufferList.pointee
-        if let mData = abl.mBuffers.mData {
-        }
-        lock.unlock()
-        cont.yield(AnalyzerInput(buffer: buffer))
     }
 }
 
@@ -346,7 +328,9 @@ public final class SpeechDictationEngine {
     }
 
     /// Mid-session hard failure (assets stall, analyzer error). The engine has
-    /// already cleaned itself; the app layer tears down session UI.
+    /// already cleaned itself; the app layer tears down session UI. Not called
+    /// while finish() is awaited — that failure is finish()'s return value, and
+    /// reporting it twice means two alerts.
     public var onFailure: ((String) -> Void)?
 
     /// HUD waveform level (thread-safe read through the source).
@@ -371,7 +355,7 @@ public final class SpeechDictationEngine {
     private var tail: [ObjectIdentifier: String] = [:]
     private var firstFinalRank: [ObjectIdentifier: Int] = [:]
     private var finalCounter = 0
-    private var currentLaneID: String?
+    private var finishing = false
     private var sessionError: Error?
     /// Set by failSession alongside cleanup so the REAL failure reason survives
     /// to finish()/cancel-time reporting (np-G1 lesson: never lose the why).
@@ -422,6 +406,8 @@ public final class SpeechDictationEngine {
             if let e = pendingSessionError { return .failure(e) }
             return .failure(DictationError.analysisFailed("not active"))
         }
+        finishing = true
+        defer { finishing = false }
         if let setupTask { await setupTask.value }          // ultra-short taps
         if let err = sessionError ?? pendingSessionError {
             cleanup()
@@ -446,7 +432,6 @@ public final class SpeechDictationEngine {
         }
 
         let text = chosenText()
-        let shape = ingest.shape
         var m = Metrics(firstPartialMs: nil, finalizeMs: finalizeMs,
                         drainMs: drainMs, stopToTextMs: sinceStop())
         if firstPartialAt > startedAt { m.firstPartialMs = (firstPartialAt - startedAt) * 1000 }
@@ -535,9 +520,9 @@ public final class SpeechDictationEngine {
     }
 
     /// Locale routing (mission item 2, R38/R42a): a pinned BCP-47 setting runs
-    /// a single-module analyzer; "auto"/nil runs TWO modules ([en, it] — the
-    /// first two LocaleManager primaries) over one input sequence and picks the
-    /// lane at finalize time via LanePicker.choose (documented heuristic).
+    /// a single-module analyzer; "auto"/nil runs one module per LocaleManager
+    /// primary (today exactly one: the system language) over one input
+    /// sequence and picks the lane at finalize time via LanePicker.choose.
     func resolveLanes(localeSetting: String?) async throws -> [Lane] {
         func lane(_ identifier: String) async -> Lane? {
             guard let canon = await SpeechTranscriber.supportedLocale(equivalentTo: Locale(identifier: identifier)) else {
@@ -595,9 +580,7 @@ public final class SpeechDictationEngine {
             if firstFinalRank[laneKey] == nil {
                 firstFinalRank[laneKey] = finalCounter
                 finalCounter += 1
-                if currentLaneID == nil { currentLaneID = laneID }  // system prior
             }
-            currentLaneID = laneID
         } else {
             tail[laneKey] = text
         }
@@ -608,12 +591,14 @@ public final class SpeechDictationEngine {
         }
     }
 
-    /// Live text of a lane: committed finals joined + volatile tail.
+    /// Live text of a lane: committed finals + volatile tail. Results carry
+    /// their own spacing (a continuation begins with a space), so they are
+    /// concatenated as-is — joining with " " pastes two spaces per sentence.
     private func liveText(of laneID: String?) -> String {
         guard let key = laneKey(for: laneID) else { return "" }
         var parts = committed[key] ?? []
         if let t = tail[key], !t.isEmpty { parts.append(t) }
-        return parts.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        return parts.joined().trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func laneKey(for id: String?) -> ObjectIdentifier? {
@@ -632,7 +617,7 @@ public final class SpeechDictationEngine {
             tallies.append(LaneTally(id: lane.id,
                                      finalChars: finals.joined().count,
                                      firstFinalOrder: firstFinalRank[key] ?? .max,
-                                     liveChars: parts.joined(separator: " ").count))
+                                     liveChars: parts.joined().count))
         }
         guard let winner = LanePicker.choose(tallies) else { return "" }
         return liveText(of: winner)
@@ -650,7 +635,6 @@ public final class SpeechDictationEngine {
         ingest.reset()
         committed = [:]; tail = [:]; firstFinalRank = [:]
         finalCounter = 0
-        currentLaneID = nil
         isActive = false
         sawText = false
         sessionError = nil
@@ -666,13 +650,12 @@ public final class SpeechDictationEngine {
         cleanup()
         if let doomed { Task { await doomed.cancelAndFinishNow() } }
         pendingSessionError = error
-        onFailure?(error.localizedDescription)
+        if !finishing { onFailure?(error.localizedDescription) }
     }
 
     private func resetSessionState() {
         committed = [:]; tail = [:]; firstFinalRank = [:]
         finalCounter = 0
-        currentLaneID = nil
         sessionError = nil
         pendingSessionError = nil
         sawText = false
@@ -695,6 +678,9 @@ public final class SpeechDictationEngine {
             group.addTask { try? await Task.sleep(for: .seconds(seconds)); return false }
             let first = await group.next()!
             group.cancelAll()
+            // A group only returns once every child has: on timeout the
+            // awaiter above is still parked on `task`, so end the task itself.
+            if !first { task.cancel() }
             return first
         }
     }
